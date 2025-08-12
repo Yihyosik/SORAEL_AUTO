@@ -53,39 +53,56 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// ===== (단순화) Deploy: 블루프린트 PUT 제거, 이름 PATCH + enable + GET 확인만 수행 =====
+// /deploy : 이름 PATCH + start(이미 실행 중이면 skip) + GET 확인
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
-    if (!runId || !runs.has(runId)) return res.status(400).json({ error: "invalid runId" });
+    if (!runId || !runs.has(runId)) {
+      return res.status(400).json({ error: "invalid runId" });
+    }
 
     const item = runs.get(runId);
-    let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
+    let scenarioId = dryRun ? `dry_${runId}` : process.env.MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=simple_patch_enable; ";
+    let note = "mode=simple_patch_start; ";
 
     if (!dryRun) {
-      if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) {
+      const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+      const MAKE_API_KEY = process.env.MAKE_API_KEY;
+      const SCENARIO_ID = process.env.MAKE_SCENARIO_ID;
+
+      if (!MAKE_API_KEY || !SCENARIO_ID) {
         return res.status(400).json({ error: "missing_env", detail: "MAKE_API_KEY or MAKE_SCENARIO_ID not set" });
       }
+
       try {
         const headers = { Authorization: `Token ${MAKE_API_KEY}` };
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
-        const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${ts}`;
+        const newName = `AutoScenario ${SCENARIO_ID} ${ts}`;
 
         // 1) 이름 변경
-        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers });
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
         note += "patch_ok; ";
 
-        // 2) start (실행)
-await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers });
-note += "start_ok; ";
+        // 2) start 실행 (이미 실행 중이면 skip)
+        try {
+          await axios.post(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/start`, {}, { headers });
+          note += "start_ok; ";
+        } catch (e) {
+          const code = e?.response?.data?.code;
+          if (code === "IM306") {
+            note += "start_skipped_already_running; ";
+          } else {
+            throw e;
+          }
+        }
 
-        // 3) 확인
-        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers });
+        // 3) GET 확인
+        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { headers });
         const nameAfter = g.data?.scenario?.name || "";
         if (nameAfter.includes(ts)) applied = true;
+
       } catch (e) {
         const detail = e.response?.data || e.message;
         note += `error=${typeof detail === "string" ? detail : JSON.stringify(detail)}`;
@@ -93,9 +110,10 @@ note += "start_ok; ";
     }
 
     runs.set(runId, { ...item, status, scenarioId, applied });
-    res.json({ runId, scenarioId, status, applied, note });
+    return res.json({ runId, scenarioId, status, applied, note });
   } catch (e) {
-    res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
+    console.error("/deploy error", e.response?.data || e.message);
+    return res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
   }
 });
 
