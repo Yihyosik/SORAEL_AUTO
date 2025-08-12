@@ -124,17 +124,17 @@ app.post("/deploy", async (req, res) => {
         await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
         note += "patch_name_ok; ";
 
-        // 2) 블루프린트 PATCH (/scenarios/{id}/blueprint) — 문자열로 전송
-        if (bpValid) {
-          await axios.patch(
-            `${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`,
-            { blueprint: JSON.stringify(bp) },
-            { headers }
-          );
-          note += "patch_blueprint_ok; ";
-        } else {
-          note += "blueprint_skip_invalid_shape; ";
-        }
+        // 2) 블루프린트 PUT (/scenarios/{id}/blueprint) — 문자열로 전송
+if (bpValid) {
+  await axios.put(
+    `${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`,
+    { blueprint: JSON.stringify(bp) },
+    { headers }
+  );
+  note += "patch_blueprint_ok; ";
+} else {
+  note += "blueprint_skip_invalid_shape; ";
+}
 
         // 3) start (이미 실행 중이면 skip)
         try {
