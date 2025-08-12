@@ -1,4 +1,4 @@
-// server.js — Make(us2) 연동: 이름 PATCH + 블루프린트 갱신(모든 형식 폴백) + start + 확인
+// server.js — Make(us2) 연동: 이름 PATCH + 블루프린트+scheduling PATCH + start + 확인
 import express from "express";
 import axios from "axios";
 
@@ -39,7 +39,7 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// /deploy : 이름 PATCH → 블루프린트 갱신(모든 형식 폴백) → start → 확인
+// /deploy : 이름 + (blueprint, scheduling 문자열) "한 번의 PATCH" → start → 확인
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
@@ -49,60 +49,41 @@ app.post("/deploy", async (req, res) => {
     let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=name_then_blueprint_start(fallback); ";
+    let note = "mode=single_patch_with_scheduling; ";
 
     if (!dryRun) {
       if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) return res.status(400).json({ error: "missing_env" });
 
       const headers = { Authorization: `Token ${MAKE_API_KEY}` };
 
+      // bp 정규화
       let bp = item.make_blueprint;
       if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint;
       if (typeof bp === "string") { try { bp = JSON.parse(bp); } catch {} }
       const bpValid = bp && typeof bp === "object" && Array.isArray(bp.flow);
 
       try {
+        // 현재 scheduling 조회(없으면 기본값)
+        let schedulingObj = { type: "indefinitely", interval: 900 };
+        try {
+          const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint`, { headers });
+          schedulingObj = g.data?.response?.scheduling || schedulingObj;
+        } catch { /* keep default */ }
+
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
         const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${ts}`;
 
-        // 1) 이름 PATCH
-        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers });
-        note += "patch_name_ok; ";
+        // ✅ /scenarios/{id} 에 name + blueprint(문자열) + scheduling(문자열) "한 번에 PATCH"
+        const payload = {
+          name: newName,
+          ...(bpValid ? { blueprint: JSON.stringify(bp) } : {}),
+          scheduling: JSON.stringify(schedulingObj)
+        };
 
-        // 2) 블루프린트 갱신 (PUT obj → PUT str → PATCH obj → PATCH str)
-        if (bpValid) {
-          let schedulingObj = { type: "indefinitely", interval: 900 };
-          try {
-            const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint`, { headers });
-            schedulingObj = g.data?.response?.scheduling || schedulingObj;
-          } catch {}
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}?confirmed=true`, payload, { headers });
+        note += (bpValid ? "patch_name_blueprint_scheduling_ok; " : "patch_name_scheduling_ok; ");
 
-          const payloadObj = { blueprint: bp, scheduling: schedulingObj };
-          const payloadStr = { blueprint: JSON.stringify(bp), scheduling: JSON.stringify(schedulingObj) };
-
-          async function tryCall(method, data) {
-            try {
-              await axios({ method, url: `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint`, data, headers });
-              return true;
-            } catch (e) {
-              note += `${method}_fail=${JSON.stringify(e.response?.data || e.message)}; `;
-              return false;
-            }
-          }
-
-          let bpUpdated =
-            (await tryCall("put", payloadObj)) ||
-            (await tryCall("put", payloadStr)) ||
-            (await tryCall("patch", payloadObj)) ||
-            (await tryCall("patch", payloadStr));
-
-          if (bpUpdated) note += "blueprint_ok; ";
-          else note += "blueprint_failed_all; ";
-        } else {
-          note += "blueprint_skip_invalid_shape; ";
-        }
-
-        // 3) start (이미 실행 중이면 skip)
+        // ▶ start (이미 실행 중이면 skip)
         try {
           await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers });
           note += "start_ok; ";
@@ -112,10 +93,9 @@ app.post("/deploy", async (req, res) => {
           else throw e;
         }
 
-        // 4) 확인
-        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers });
-        const nameAfter = g.data?.scenario?.name || "";
-        if (nameAfter.includes(ts)) applied = true;
+        // ▷ 반영 확인(이름 포함 여부로 체크)
+        const after = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers });
+        if ((after.data?.scenario?.name || "").includes(ts)) applied = true;
 
         scenarioId = MAKE_SCENARIO_ID;
       } catch (e) {
