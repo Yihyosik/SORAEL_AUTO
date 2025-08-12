@@ -96,62 +96,60 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// /deploy : 설계 → 메이크 시나리오 업데이트/활성(반영 확인)
+// /deploy : (단순화) 이름 PATCH + enable + 적용 확인만 수행 — blueprint PUT 제거
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
-    if (!runId || !runs.has(runId)) return res.status(400).json({ error: "invalid runId" });
+    if (!runId || !runs.has(runId)) {
+      return res.status(400).json({ error: "invalid runId" });
+    }
 
     const item = runs.get(runId);
-    const { bp: normalized, reason } = normalizeBlueprint(item.make_blueprint);
-    const hasContent =
-      (Array.isArray(normalized.nodes) && normalized.nodes.length) ||
-      (Array.isArray(normalized.connections) && normalized.connections.length) ||
-      (Array.isArray(normalized.steps) && normalized.steps.length) ||
-      Object.keys(normalized).length > 0;
 
-    let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
+    // 표시용
+    let scenarioId = dryRun ? `dry_${runId}` : process.env.MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = `bp_shape=${reason}; `;
+    let note = "mode=simple_patch_enable; ";
 
-    if (!dryRun && MAKE_API_KEY && MAKE_SCENARIO_ID) {
+    if (!dryRun) {
+      const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+      const MAKE_API_KEY = process.env.MAKE_API_KEY;
+      const SCENARIO_ID = process.env.MAKE_SCENARIO_ID;
+
+      if (!MAKE_API_KEY || !SCENARIO_ID) {
+        return res.status(400).json({ error: "missing_env", detail: "MAKE_API_KEY or MAKE_SCENARIO_ID not set" });
+      }
+
       try {
         const headers = { Authorization: `Token ${MAKE_API_KEY}` };
-        const base = MAKE_API_BASE.replace(/\/$/, "");
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        const newName = `AutoScenario ${SCENARIO_ID} ${ts}`;
 
-        // 1) 이름 변경(PATCH)로 권한/리전/적용 경로 확인
-        await axios.patch(`${base}/scenarios/${scenarioId}`, { name: `AutoScenario ${scenarioId} ${ts}` }, { headers });
+        // 1) 이름 변경 (PATCH)
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
+        note += "patch_ok; ";
 
-        // 2) 블루프린트 PUT (내용 있을 때만)
-        if (hasContent) {
-          await axios.put(`${base}/scenarios/${scenarioId}`, { blueprint: normalized }, { headers });
-          note += "PUT ok; ";
-        } else {
-          note += "PUT skipped(empty_bp); ";
-        }
+        // 2) enable
+        await axios.post(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/enable`, {}, { headers });
+        note += "enable_ok; ";
 
-        // 3) enable
-        await axios.post(`${base}/scenarios/${scenarioId}/enable`, {}, { headers });
-        note += "enable ok; ";
+        // 3) GET으로 확인
+        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { headers });
+        if ((g.data?.scenario?.name || "").includes(ts)) applied = true;
 
-        // 4) 적용 확인(조회)
-        const g = await axios.get(`${base}/scenarios/${scenarioId}`, { headers });
-        const nameAfter = g.data?.name || "";
-        if (nameAfter.includes(ts)) applied = true;
+        scenarioId = SCENARIO_ID; // 최종 고정 ID
       } catch (e) {
         const detail = e.response?.data || e.message;
-        console.warn("[Make] scenario update/enable failed", detail);
-        note += `error=${safeJson(detail)}`;
+        note += `error=${typeof detail === "string" ? detail : JSON.stringify(detail)}`;
       }
     }
 
     runs.set(runId, { ...item, status, scenarioId, applied });
-    res.json({ runId, scenarioId, status, applied, note });
+    return res.json({ runId, scenarioId, status, applied, note });
   } catch (e) {
     console.error("/deploy error", e.response?.data || e.message);
-    res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
+    return res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
   }
 });
 
