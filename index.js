@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import axios from "axios";
 
@@ -10,16 +11,34 @@ const MAKE_API_KEY = process.env.MAKE_API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID;
 
-if (!OPENAI_API_KEY) {
-  console.warn("[WARN] OPENAI_API_KEY is not set. /build will fail.");
-}
+if (!OPENAI_API_KEY) console.warn("[WARN] OPENAI_API_KEY is not set. /build will fail.");
+if (!MAKE_API_KEY) console.warn("[WARN] MAKE_API_KEY is not set. realRun will be limited.");
+if (!MAKE_SCENARIO_ID) console.warn("[WARN] MAKE_SCENARIO_ID is not set. realRun will be limited.");
 
 const runs = new Map();
 
-// Health check
-app.get("/health", (req, res) => {
-  res.json({ ok: true, uptime: process.uptime() });
-});
+/* -------------------- Utils -------------------- */
+function safeJson(v) {
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+/** 매우 보수적인 정규화: nodes/connections 형태면 통과, steps만 있으면 그대로 전달(임의 변환 안 함) */
+function normalizeBlueprint(bp = {}) {
+  if (!bp || typeof bp !== "object") return { bp: {}, reason: "empty_or_not_object" };
+  const hasNodes = Array.isArray(bp.nodes);
+  const hasConns = Array.isArray(bp.connections);
+  const hasSteps = Array.isArray(bp.steps);
+
+  if (hasNodes && hasConns) return { bp, reason: "nodes_connections_ok" };
+  if (hasSteps)        return { bp, reason: "steps_only_pass_through" };
+  if (Object.keys(bp).length === 0) return { bp: {}, reason: "empty_object" };
+  return { bp, reason: "unknown_shape_pass_through" };
+}
+
+/* -------------------- Routes -------------------- */
+
+// Health
+app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
 // /build : 자연어 → 설계(JSON)
 app.post("/build", async (req, res) => {
@@ -27,8 +46,14 @@ app.post("/build", async (req, res) => {
     const { prompt = "", dryRun = true } = req.body || {};
     if (!prompt) return res.status(400).json({ error: "prompt required" });
 
-    const sys = `너는 자동화 설계 보조 AI다. 사용자의 요청을 받아 'workflow_spec'(사람이 읽을 요약)과 'make_blueprint'(JSON) 두 가지로 반환한다. make_blueprint는 키/값이 안정적으로 파싱되게 작성한다.`;
-    const user = `요청: ${prompt}\n제약: 최소 단계로, 게시/발행은 dryRun=${dryRun} 기준. 출력은 JSON만. 구조: {workflow_spec:{...}, make_blueprint:{...}}`;
+    const sys =
+      "너는 자동화 설계 보조 AI다. 사용자의 요청을 받아 'workflow_spec'(사람이 읽을 요약)과 " +
+      "'make_blueprint'(JSON) 두 가지로 반환한다. make_blueprint는 가능한 한 " +
+      "Make 표준(nodes + connections) 구조를 따르되, 파싱 가능한 JSON만 출력한다.";
+    const user =
+      `요청: ${prompt}\n` +
+      `제약: 최소 단계, 게시/발행은 dryRun=${dryRun} 기준. ` +
+      `반드시 JSON만. 형태: {workflow_spec:{...}, make_blueprint:{...}}`;
 
     const resp = await axios.post(
       "https://api.openai.com/v1/chat/completions",
@@ -36,30 +61,28 @@ app.post("/build", async (req, res) => {
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: sys },
-          { role: "user", content: user }
+          { role: "user", content: user },
         ],
-        temperature: 0.2
+        temperature: 0.2,
       },
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
     );
 
-    let content = resp.data?.choices?.[0]?.message?.content?.trim();
+    let content = resp.data?.choices?.[0]?.message?.content?.trim() || "";
     if (content.startsWith("```")) content = content.replace(/^```[a-zA-Z]*\n|```$/g, "");
 
     let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      parsed = { workflow_spec: { summary: prompt }, make_blueprint: { steps: [] }, raw: content };
+    try { parsed = JSON.parse(content); }
+    catch {
+      parsed = { workflow_spec: { summary: prompt }, make_blueprint: {}, raw: content };
     }
 
     const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     runs.set(runId, { ...parsed, status: "built", dryRun });
-
     return res.json({ runId, dryRun, ...parsed });
   } catch (e) {
     console.error("/build error", e.response?.data || e.message);
-    return res.status(500).json({ error: "build_failed", detail: e.response?.data || e.message });
+    res.status(500).json({ error: "build_failed", detail: e.response?.data || e.message });
   }
 });
 
@@ -70,66 +93,69 @@ app.post("/deploy", async (req, res) => {
     if (!runId || !runs.has(runId)) return res.status(400).json({ error: "invalid runId" });
 
     const item = runs.get(runId);
-    const bp = item.make_blueprint || {};
-    const hasSteps =
-      Array.isArray(bp.steps) ? bp.steps.length > 0 :
-      Array.isArray(bp.nodes) ? bp.nodes.length > 0 :
-      Object.keys(bp || {}).length > 0;
+    const { bp: normalized, reason } = normalizeBlueprint(item.make_blueprint);
+    const hasContent =
+      (Array.isArray(normalized.nodes) && normalized.nodes.length) ||
+      (Array.isArray(normalized.connections) && normalized.connections.length) ||
+      (Array.isArray(normalized.steps) && normalized.steps.length) ||
+      Object.keys(normalized).length > 0;
 
     let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let makeMsg = "";
+    let note = `bp_shape=${reason}; `;
 
     if (!dryRun && MAKE_API_KEY && MAKE_SCENARIO_ID) {
       try {
         const headers = { Authorization: `Token ${MAKE_API_KEY}` };
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
 
-        // 이름 변경으로 권한·적용 여부 검증
+        // 1) 이름에 타임스탬프를 반영해 권한/적용 가시화
         await axios.patch(
           `https://api.make.com/v2/scenarios/${scenarioId}`,
           { name: `AutoScenario ${scenarioId} ${ts}` },
           { headers }
         );
 
-        if (hasSteps) {
+        // 2) 블루프린트 PUT (있을 때만)
+        if (hasContent) {
           await axios.put(
             `https://api.make.com/v2/scenarios/${scenarioId}`,
-            { blueprint: bp },
+            { blueprint: normalized },
             { headers }
           );
-          makeMsg += "[Make] blueprint PUT ok. ";
+          note += "PUT ok; ";
         } else {
-          makeMsg += "[Make] blueprint is empty → skip PUT. ";
+          note += "PUT skipped(empty_bp); ";
         }
 
+        // 3) enable
         await axios.post(
           `https://api.make.com/v2/scenarios/${scenarioId}/enable`,
           {},
           { headers }
         );
-        makeMsg += "enable ok. ";
+        note += "enable ok; ";
 
+        // 4) 적용 여부 확인
         const g = await axios.get(
           `https://api.make.com/v2/scenarios/${scenarioId}`,
           { headers }
         );
         const nameAfter = g.data?.name || "";
         if (nameAfter.includes(ts)) applied = true;
-
       } catch (e) {
         const detail = e.response?.data || e.message;
         console.warn("[Make] scenario update/enable failed", detail);
-        makeMsg += `error: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`;
+        note += `error=${safeJson(detail)}`;
       }
     }
 
     runs.set(runId, { ...item, status, scenarioId, applied });
-    return res.json({ runId, scenarioId, status, applied, note: makeMsg });
+    return res.json({ runId, scenarioId, status, applied, note });
   } catch (e) {
     console.error("/deploy error", e.response?.data || e.message);
-    return res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
+    res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
   }
 });
 
@@ -143,10 +169,10 @@ app.post("/chat", async (req, res) => {
     const runId = b.data.runId;
     const d = await axios.post(`http://localhost:${PORT}/deploy`, { runId, dryRun });
 
-    return res.json({ ok: true, runId, build: b.data, deploy: d.data });
+    res.json({ ok: true, runId, build: b.data, deploy: d.data });
   } catch (e) {
     console.error("/chat error", e.response?.data || e.message);
-    return res.status(500).json({ error: "chat_failed", detail: e.response?.data || e.message });
+    res.status(500).json({ error: "chat_failed", detail: e.response?.data || e.message });
   }
 });
 
@@ -172,13 +198,17 @@ app.post("/telegram/webhook", async (req, res) => {
 
     await sendTG(
       chatId,
-      `✅ 완료 (${dryRunFlag ? "드라이런" : "실발행"})\nrunId: ${runId}\nstatus: ${d.data.status}\nscenario: ${d.data.scenarioId}` +
-      (dryRunFlag ? "" : `\napplied: ${d.data.applied ? "✅ 반영됨" : "❌ 미반영(로그확인)"}`)
+      `✅ 완료 (${dryRunFlag ? "드라이런" : "실발행"})` +
+      `\nrunId: ${runId}` +
+      `\nstatus: ${d.data.status}` +
+      `\nscenario: ${d.data.scenarioId}` +
+      (dryRunFlag ? "" : `\napplied: ${d.data.applied ? "✅ 반영됨" : "❌ 미반영(로그확인)"}`) +
+      (d.data.note ? `\nnote: ${d.data.note}` : "")
     );
-    return res.json({ ok: true });
+    res.json({ ok: true });
   } catch (e) {
     console.error("/telegram/webhook error", e.response?.data || e.message);
-    return res.status(200).json({ ok: true });
+    res.status(200).json({ ok: true });
   }
 });
 
