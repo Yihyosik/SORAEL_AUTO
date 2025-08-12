@@ -78,9 +78,9 @@ app.post("/deploy", async (req, res) => {
         await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers });
         note += "patch_ok; ";
 
-        // 2) enable
-        await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/enable`, {}, { headers });
-        note += "enable_ok; ";
+        // 2) start (실행)
+await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers });
+note += "start_ok; ";
 
         // 3) 확인
         const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers });
