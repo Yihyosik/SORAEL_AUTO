@@ -1,0 +1,13 @@
+{
+  "name": "sorael-min-server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.6.8"
+  }
+}
