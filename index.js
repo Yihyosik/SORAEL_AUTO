@@ -90,7 +90,7 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// /deploy : 이름 PATCH → 블루프린트 PATCH(/blueprint) → start → 확인
+// /deploy : 이름 PATCH → 블루프린트 갱신(put→patch 폴백) → start → 확인
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
@@ -100,7 +100,7 @@ app.post("/deploy", async (req, res) => {
     let scenarioId = dryRun ? `dry_${runId}` : process.env.MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=name_then_blueprint_start; ";
+    let note = "mode=name_then_blueprint_start(fallback); ";
 
     if (!dryRun) {
       const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
@@ -124,25 +124,41 @@ app.post("/deploy", async (req, res) => {
         await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
         note += "patch_name_ok; ";
 
-       // 2) 블루프린트 갱신 (/scenarios/{id}/blueprint) — blueprint + scheduling 모두 전송
-if (bpValid) {
-  // 현재 스케줄을 먼저 GET해서 그대로 유지 (필수 아님처럼 보이지만, 없으면 Not found 나올 수 있음)
-  const bpGet = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, { headers });
-  // 응답 형태: { code:"OK", response:{ blueprint:{...}, scheduling:{...}, ... } }
-  const schedulingObj = bpGet.data?.response?.scheduling || { type: "indefinitely", interval: 900 };
+        // 2) 블루프린트 갱신 시도 (/scenarios/{id}/blueprint)
+        if (bpValid) {
+          // 현재 scheduling 유지용 GET
+          let schedulingObj = { type: "indefinitely", interval: 900 };
+          try {
+            const bpGet = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, { headers });
+            schedulingObj = bpGet.data?.response?.scheduling || schedulingObj;
+          } catch { /* ignore */ }
 
-  await axios.patch(
-    `${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`,
-    {
-      blueprint: JSON.stringify(bp),          // 반드시 문자열
-      scheduling: JSON.stringify(schedulingObj) // 이것도 문자열로
-    },
-    { headers }
-  );
-  note += "patch_blueprint_ok; ";
-} else {
-  note += "blueprint_skip_invalid_shape; ";
-}
+          const payload = {
+            blueprint: JSON.stringify(bp),
+            scheduling: JSON.stringify(schedulingObj)
+          };
+
+          let bpUpdated = false;
+          // 2-1) PUT 우선
+          try {
+            await axios.put(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, payload, { headers });
+            note += "blueprint_put_ok; ";
+            bpUpdated = true;
+          } catch (e1) {
+            // 2-2) PATCH 폴백
+            try {
+              await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, payload, { headers });
+              note += "blueprint_patch_ok; ";
+              bpUpdated = true;
+            } catch (e2) {
+              const d1 = e1.response?.data || e1.message;
+              const d2 = e2.response?.data || e2.message;
+              note += `blueprint_failed(${JSON.stringify(d1)} | ${JSON.stringify(d2)}); `;
+            }
+          }
+        } else {
+          note += "blueprint_skip_invalid_shape; ";
+        }
 
         // 3) start (이미 실행 중이면 skip)
         try {
