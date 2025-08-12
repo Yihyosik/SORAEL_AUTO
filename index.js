@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MAKE_API_KEY = process.env.MAKE_API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID; // 새로 추가
 
 if (!OPENAI_API_KEY) {
   console.warn("[WARN] OPENAI_API_KEY is not set. /build will fail.");
@@ -62,27 +63,36 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// /deploy : 설계 → 메이크 시나리오 생성/활성
+// /deploy : 설계 → 메이크 시나리오 업데이트/활성
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
     if (!runId || !runs.has(runId)) return res.status(400).json({ error: "invalid runId" });
 
     const item = runs.get(runId);
-    let scenarioId = `dry_${runId}`;
-    let status = "active(dryRun)";
+    let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
+    let status = dryRun ? "active(dryRun)" : "active(realRun)";
 
-    if (!dryRun && MAKE_API_KEY) {
+    if (!dryRun && MAKE_API_KEY && MAKE_SCENARIO_ID) {
       try {
-        const mk = await axios.post(
-          "https://api.make.com/v2/scenarios",
+        // 블루프린트 업데이트
+        await axios.put(
+          `https://api.make.com/v2/scenarios/${MAKE_SCENARIO_ID}`,
           { blueprint: item.make_blueprint },
           { headers: { Authorization: `Token ${MAKE_API_KEY}` } }
         );
-        scenarioId = mk.data?.id || scenarioId;
-        status = mk.data?.status || "active";
+
+        // 시나리오 활성화
+        await axios.post(
+          `https://api.make.com/v2/scenarios/${MAKE_SCENARIO_ID}/enable`,
+          {},
+          { headers: { Authorization: `Token ${MAKE_API_KEY}` } }
+        );
+
+        scenarioId = MAKE_SCENARIO_ID;
+        status = "active(realRun)";
       } catch (e) {
-        console.warn("[Make] API call failed, keep dryRun path.", e.response?.data || e.message);
+        console.warn("[Make] scenario update/enable failed", e.response?.data || e.message);
       }
     }
 
@@ -100,9 +110,9 @@ app.post("/chat", async (req, res) => {
     const { message = "", dryRun = true } = req.body || {};
     if (!message) return res.status(400).json({ error: "message required" });
 
-    const b = await axios.post("http://localhost:" + PORT + "/build", { prompt: message, dryRun });
+    const b = await axios.post(`http://localhost:${PORT}/build`, { prompt: message, dryRun });
     const runId = b.data.runId;
-    const d = await axios.post("http://localhost:" + PORT + "/deploy", { runId, dryRun });
+    const d = await axios.post(`http://localhost:${PORT}/deploy`, { runId, dryRun });
 
     return res.json({ ok: true, runId, build: b.data, deploy: d.data });
   } catch (e) {
@@ -129,9 +139,9 @@ app.post("/telegram/webhook", async (req, res) => {
       return res.json({ ok: true });
     }
 
-    const b = await axios.post("http://localhost:" + PORT + "/build", { prompt: text, dryRun: dryRunFlag });
+    const b = await axios.post(`http://localhost:${PORT}/build`, { prompt: text, dryRun: dryRunFlag });
     const runId = b.data.runId;
-    const d = await axios.post("http://localhost:" + PORT + "/deploy", { runId, dryRun: dryRunFlag });
+    const d = await axios.post(`http://localhost:${PORT}/deploy`, { runId, dryRun: dryRunFlag });
 
     await sendTG(chatId, `✅ 완료 (${dryRunFlag ? "드라이런" : "실발행"})\nrunId: ${runId}\nstatus: ${d.data.status}\nscenario: ${d.data.scenarioId}`);
     return res.json({ ok: true });
