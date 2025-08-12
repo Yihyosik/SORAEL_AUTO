@@ -34,6 +34,28 @@ function normalizeBlueprint(bp = {}) {
 
 // ===== Routes =====
 app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
+// --- 임시 점검 엔드포인트 ---
+// 서버가 실제로 어떤 Make 설정으로 호출하는지 확인 (토큰 값 자체는 노출 안 함)
+app.get("/make-check", async (_req, res) => {
+  try {
+    const base = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+    const sid = process.env.MAKE_SCENARIO_ID;
+    const headers = { Authorization: `Token ${process.env.MAKE_API_KEY}` };
+
+    let status = 200, body;
+    try {
+      const r = await axios.get(`${base}/scenarios/${sid}`, { headers });
+      body = r.data;
+    } catch (e) {
+      status = e.response?.status || 500;
+      body = e.response?.data || e.message;
+    }
+
+    res.json({ base, sid, scenario_get_status: status, scenario_get_body: body });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data || e.message });
+  }
+});
 
 // /build : 자연어 → 설계(JSON)
 app.post("/build", async (req, res) => {
