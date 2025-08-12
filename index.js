@@ -1,4 +1,4 @@
-// server.js — Make(us2) 안정 연동: blueprint PUT(객체) + name PATCH + start + 확인
+// server.js — Make(us2) 최종 안정본: team_id 지원 + blueprint PUT(객체) + name PATCH + start + 적용확인
 import express from "express";
 import axios from "axios";
 
@@ -6,28 +6,29 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 
 /* ===== ENV ===== */
-const PORT              = process.env.PORT || 8080;
-const TELEGRAM_BOT_TOKEN= process.env.TELEGRAM_BOT_TOKEN || "";
-const MAKE_API_KEY      = process.env.MAKE_API_KEY || "";
-const MAKE_SCENARIO_ID  = process.env.MAKE_SCENARIO_ID || "2718972";
-const MAKE_API_BASE     = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+const PORT               = process.env.PORT || 8080;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const MAKE_API_KEY       = process.env.MAKE_API_KEY || "";
+const MAKE_SCENARIO_ID   = process.env.MAKE_SCENARIO_ID || "2718972";  // 시나리오 ID
+const MAKE_API_BASE      = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+const MAKE_TEAM_ID       = process.env.MAKE_TEAM_ID || "1169858";      // 필요 시 팀 ID (없으면 빈 문자열)
 
-/* ===== STATE ===== */
+/* ===== STATE & UTILS ===== */
 const runs = new Map();
-
-/* ===== UTILS ===== */
-const headers = () => ({ Authorization: `Token ${MAKE_API_KEY}` });
-const nowStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
+const H = () => ({ Authorization: `Token ${MAKE_API_KEY}` });
+const ts = () => new Date().toISOString().replace(/[:.]/g, "-");
+const qTeam = MAKE_TEAM_ID ? `&team_id=${encodeURIComponent(MAKE_TEAM_ID)}` : "";
 
 /* ===== ROUTES ===== */
 app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
-// 샘플 /build — 실제 설계 생성 로직은 이후 교체
+// 샘플 /build — 실제 설계 생성 로직은 이후 교체 가능
 app.post("/build", async (req, res) => {
   try {
     const { prompt = "", dryRun = true } = req.body || {};
     if (!prompt) return res.status(400).json({ error: "prompt required" });
 
+    // 최소 유효 블루프린트
     const blueprint = {
       flow: [
         { id: 1, module: "gateway:CustomWebHook", version: 1, mapper: {}, metadata: { label: "Webhook In" } }
@@ -45,10 +46,10 @@ app.post("/build", async (req, res) => {
 
 /**
  * /deploy
- * - blueprint & scheduling: PUT /scenarios/{id}/blueprint
+ * - blueprint & scheduling: PUT /scenarios/{id}/blueprint?confirmed=true[&team_id=...]
  * - name: PATCH /scenarios/{id}
- * - start: POST /scenarios/{id}/start
- * - 적용 확인: GET /scenarios/{id}
+ * - start: POST /scenarios/{id}/start  (IM306이면 스킵)
+ * - 적용확인: GET /scenarios/{id}
  */
 app.post("/deploy", async (req, res) => {
   try {
@@ -59,57 +60,62 @@ app.post("/deploy", async (req, res) => {
     let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=blueprint_put_then_name_patch; ";
+    let note = "mode=blueprint_roundtrip_v2(team_id); ";
 
     if (!dryRun) {
-      if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) {
-        return res.status(400).json({ error: "missing_env" });
-      }
+      if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) return res.status(400).json({ error: "missing_env" });
 
+      const steps = [];
       try {
-        // 현재 블루프린트/스케줄링 GET
-        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint`, { headers: headers() });
+        // 0) 현재 블루프린트/스케줄링 GET (래퍼 유무 모두 대응)
+        const g = await axios.get(
+          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`,
+          { headers: H() }
+        );
         const resp = g.data?.response || g.data || {};
+        steps.push("blueprint_get_ok");
+
         let currentBlueprint = resp.blueprint || {};
         let currentScheduling = resp.scheduling || { type: "indefinitely", interval: 900 };
 
-        // build에서 만든 bp가 있으면 flow만 교체
+        // 1) build 결과가 있으면 flow만 교체(문자열 금지, 기본 키 유지)
         let bp = item.make_blueprint;
-        if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint;
+        if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint; // 호환
         if (typeof bp === "string") { try { bp = JSON.parse(bp); } catch { bp = null; } }
         if (bp && Array.isArray(bp.flow)) currentBlueprint = { ...currentBlueprint, flow: bp.flow };
         if (currentBlueprint && typeof currentBlueprint === "object") {
           currentBlueprint.__meta = { by: "api-sorael", at: new Date().toISOString() };
         }
 
-        // 블루프린트 전용 PUT
+        // 2) 블루프린트 전용 PUT (객체 그대로)
         await axios.put(
-          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true`,
+          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`,
           { blueprint: currentBlueprint, scheduling: currentScheduling },
-          { headers: { ...headers(), "Content-Type": "application/json" } }
+          { headers: { ...H(), "Content-Type": "application/json" } }
         );
-        note += "blueprint_put_ok; ";
+        steps.push("blueprint_put_ok");
 
-        // 이름 PATCH
-        const ts = nowStamp();
-        const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${ts}`;
-        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers: headers() });
-        note += "name_patch_ok; ";
+        // 3) 이름 PATCH (분리)
+        const stamp = ts();
+        const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${stamp}`;
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers: H() });
+        steps.push("name_patch_ok");
 
-        // start
+        // 4) start (이미 실행 중이면 스킵)
         try {
-          await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers: headers() });
-          note += "start_ok; ";
-        } catch (e) {
-          if (e?.response?.data?.code === "IM306") note += "start_skipped_already_running; ";
-          else throw e;
+          await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers: H() });
+          steps.push("start_ok");
+        } catch (e2) {
+          if (e2?.response?.data?.code === "IM306") steps.push("start_skipped_already_running");
+          else throw e2;
         }
 
-        // 반영 확인
-        const after = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers: headers() });
-        if ((after.data?.scenario?.name || "").includes(newName)) applied = true;
+        // 5) 반영 확인
+        const after = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers: H() });
+        if ((after.data?.scenario?.name || "").includes(stamp)) applied = true;
 
         scenarioId = MAKE_SCENARIO_ID;
+        note += steps.join("; ") + "; ";
       } catch (e) {
         const detail = e.response?.data || e.message;
         note += `error=${typeof detail === "string" ? detail : JSON.stringify(detail)}`;
@@ -123,7 +129,7 @@ app.post("/deploy", async (req, res) => {
   }
 });
 
-// 텔레그램 웹훅
+// (선택) 텔레그램 웹훅 — "dryRun=false" 포함시 실발행
 app.post("/telegram/webhook", async (req, res) => {
   try {
     const update = req.body;
@@ -144,10 +150,10 @@ app.post("/telegram/webhook", async (req, res) => {
         text:
           `✅ 완료 (${dryRunFlag ? "드라이런" : "실발행"})` +
           `\nrunId: ${runId}` +
-          `\nstatus: ${d.data.status}` +
-          `\nscenario: ${d.data.scenarioId}` +
-          (dryRunFlag ? "" : `\napplied: ${d.data.applied ? "✅ 반영됨" : "❌ 미반영(로그확인)"}`) +
-          (d.data.note ? `\nnote: ${d.data.note}` : "")
+          `\nstatus: ${d.status || d.data?.status}` +
+          `\nscenario: ${d.scenarioId || d.data?.scenarioId}` +
+          (dryRunFlag ? "" : `\napplied: ${(d.applied ?? d.data?.applied) ? "✅ 반영됨" : "❌ 미반영(로그확인)"}`) +
+          ((d.note ?? d.data?.note) ? `\nnote: ${d.note ?? d.data?.note}` : "")
       });
     }
     res.json({ ok: true });
