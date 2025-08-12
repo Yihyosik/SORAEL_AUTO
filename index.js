@@ -124,11 +124,19 @@ app.post("/deploy", async (req, res) => {
         await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
         note += "patch_name_ok; ";
 
-        // 2) 블루프린트 PUT (/scenarios/{id}/blueprint) — 문자열로 전송
+       // 2) 블루프린트 갱신 (/scenarios/{id}/blueprint) — blueprint + scheduling 모두 전송
 if (bpValid) {
-  await axios.put(
+  // 현재 스케줄을 먼저 GET해서 그대로 유지 (필수 아님처럼 보이지만, 없으면 Not found 나올 수 있음)
+  const bpGet = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, { headers });
+  // 응답 형태: { code:"OK", response:{ blueprint:{...}, scheduling:{...}, ... } }
+  const schedulingObj = bpGet.data?.response?.scheduling || { type: "indefinitely", interval: 900 };
+
+  await axios.patch(
     `${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`,
-    { blueprint: JSON.stringify(bp) },
+    {
+      blueprint: JSON.stringify(bp),          // 반드시 문자열
+      scheduling: JSON.stringify(schedulingObj) // 이것도 문자열로
+    },
     { headers }
   );
   note += "patch_blueprint_ok; ";
