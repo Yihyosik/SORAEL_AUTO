@@ -90,64 +90,60 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// 최종 /deploy: 이름 PATCH → 블루프린트 PATCH(유효할 때만) → start(이미 실행 중이면 skip) → GET 확인
+// /deploy : 이름+블루프린트 "한 번의 PATCH" → start → 확인
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
-    if (!runId || !runs.has(runId)) return errJson(res, 400, "invalid runId");
+    if (!runId || !runs.has(runId)) return res.status(400).json({ error: "invalid runId" });
 
     const item = runs.get(runId);
-    let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
+    let scenarioId = dryRun ? `dry_${runId}` : process.env.MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=patch_blueprint_start; ";
+    let note = "mode=single_patch_blueprint_start; ";
 
     if (!dryRun) {
-      if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) {
-        return errJson(res, 400, "missing_env: MAKE_API_KEY or MAKE_SCENARIO_ID");
-      }
+      const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+      const MAKE_API_KEY = process.env.MAKE_API_KEY;
+      const SCENARIO_ID = process.env.MAKE_SCENARIO_ID;
+      if (!MAKE_API_KEY || !SCENARIO_ID) return res.status(400).json({ error: "missing_env" });
 
       try {
-        const headers = authHeaders();
+        const headers = { Authorization: `Token ${MAKE_API_KEY}` };
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
-        const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${ts}`;
+        const newName = `AutoScenario ${SCENARIO_ID} ${ts}`;
 
-        // 1) 이름 변경
-        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers });
-        note += "patch_ok; ";
-
-        // 1.5) 블루프린트 업데이트 (유효할 때만)
+        // 블루프린트 정규화
+        const normalizeBlueprintMaybe = (bp) => {
+          if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint;
+          if (typeof bp === "string") { try { bp = JSON.parse(bp); } catch {} }
+          const valid = bp && typeof bp === "object" && Array.isArray(bp.flow);
+          return { bp, valid };
+        };
         const { bp, valid } = normalizeBlueprintMaybe(item.make_blueprint);
-        if (valid) {
-          await axios.patch(
-            `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`,
-            { blueprint: JSON.stringify(bp) }, // 서버는 문자열 형태 선호
-            { headers }
-          );
-          note += "blueprint_ok; ";
-        } else {
-          note += "blueprint_skip_invalid_shape; ";
-        }
 
-        // 2) start 실행 (이미 실행 중이면 skip)
+        // ✅ 이름 + (있으면) 블루프린트를 "한 번에 PATCH"
+        const payload = { name: newName };
+        if (valid) payload.blueprint = JSON.stringify(bp);  // 서버는 문자열 선호
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, payload, { headers });
+        note += valid ? "patch_name_blueprint_ok; " : "patch_name_ok; ";
+
+        // start (이미 실행 중이면 skip)
         try {
-          await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers });
+          await axios.post(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/start`, {}, { headers });
           note += "start_ok; ";
         } catch (e) {
           const code = e?.response?.data?.code;
-          if (code === "IM306") { // Scenario is already running
-            note += "start_skipped_already_running; ";
-          } else {
-            throw e;
-          }
+          if (code === "IM306") note += "start_skipped_already_running; ";
+          else throw e;
         }
 
-        // 3) GET으로 이름 반영 확인
-        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers });
+        // 확인
+        const g = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { headers });
         const nameAfter = g.data?.scenario?.name || "";
         if (nameAfter.includes(ts)) applied = true;
 
-        scenarioId = MAKE_SCENARIO_ID;
+        scenarioId = SCENARIO_ID;
       } catch (e) {
         const detail = e.response?.data || e.message;
         note += `error=${typeof detail === "string" ? detail : JSON.stringify(detail)}`;
@@ -155,12 +151,11 @@ app.post("/deploy", async (req, res) => {
     }
 
     runs.set(runId, { ...item, status, scenarioId, applied });
-    ok(res, { runId, scenarioId, status, applied, note });
+    return res.json({ runId, scenarioId, status, applied, note });
   } catch (e) {
-    errJson(res, 500, e.response?.data || e.message);
+    return res.status(500).json({ error: "deploy_failed", detail: e.message });
   }
 });
-
 /* (선택) 텔레그램 웹훅 — 필요 없으면 제거 가능 */
 app.post("/telegram/webhook", async (req, res) => {
   try {
