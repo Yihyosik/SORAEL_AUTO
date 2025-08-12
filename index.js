@@ -1,15 +1,17 @@
-// server.js
+// server.js (Make us2 리전 대응 + 시나리오 고정 업데이트 + 적용 확인)
 import express from "express";
 import axios from "axios";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
+// ===== ENV =====
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MAKE_API_KEY = process.env.MAKE_API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID;
+const MAKE_API_BASE = process.env.MAKE_API_BASE || "https://us2.make.com/api/v2"; // ★ us2 기본
 
 if (!OPENAI_API_KEY) console.warn("[WARN] OPENAI_API_KEY is not set. /build will fail.");
 if (!MAKE_API_KEY) console.warn("[WARN] MAKE_API_KEY is not set. realRun will be limited.");
@@ -17,27 +19,20 @@ if (!MAKE_SCENARIO_ID) console.warn("[WARN] MAKE_SCENARIO_ID is not set. realRun
 
 const runs = new Map();
 
-/* -------------------- Utils -------------------- */
-function safeJson(v) {
-  try { return JSON.stringify(v); } catch { return String(v); }
-}
-
-/** 매우 보수적인 정규화: nodes/connections 형태면 통과, steps만 있으면 그대로 전달(임의 변환 안 함) */
+// ===== Utils =====
+function safeJson(v) { try { return JSON.stringify(v); } catch { return String(v); } }
 function normalizeBlueprint(bp = {}) {
   if (!bp || typeof bp !== "object") return { bp: {}, reason: "empty_or_not_object" };
   const hasNodes = Array.isArray(bp.nodes);
   const hasConns = Array.isArray(bp.connections);
   const hasSteps = Array.isArray(bp.steps);
-
   if (hasNodes && hasConns) return { bp, reason: "nodes_connections_ok" };
-  if (hasSteps)        return { bp, reason: "steps_only_pass_through" };
+  if (hasSteps) return { bp, reason: "steps_only_pass_through" };
   if (Object.keys(bp).length === 0) return { bp: {}, reason: "empty_object" };
   return { bp, reason: "unknown_shape_pass_through" };
 }
 
-/* -------------------- Routes -------------------- */
-
-// Health
+// ===== Routes =====
 app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
 // /build : 자연어 → 설계(JSON)
@@ -47,46 +42,39 @@ app.post("/build", async (req, res) => {
     if (!prompt) return res.status(400).json({ error: "prompt required" });
 
     const sys =
-      "너는 자동화 설계 보조 AI다. 사용자의 요청을 받아 'workflow_spec'(사람이 읽을 요약)과 " +
-      "'make_blueprint'(JSON) 두 가지로 반환한다. make_blueprint는 가능한 한 " +
-      "Make 표준(nodes + connections) 구조를 따르되, 파싱 가능한 JSON만 출력한다.";
+      "너는 자동화 설계 보조 AI다. 사용자 요청을 받아 'workflow_spec'(사람이 읽을 요약)과 " +
+      "'make_blueprint'(JSON)을 반환한다. 가능하면 nodes+connections 구조를 쓰고, 반드시 파싱 가능한 JSON만 출력한다.";
     const user =
-      `요청: ${prompt}\n` +
-      `제약: 최소 단계, 게시/발행은 dryRun=${dryRun} 기준. ` +
+      `요청: ${prompt}\n제약: 최소 단계, 게시/발행은 dryRun=${dryRun} 기준. ` +
       `반드시 JSON만. 형태: {workflow_spec:{...}, make_blueprint:{...}}`;
 
-    const resp = await axios.post(
+    const r = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: user },
-        ],
+        messages: [{ role: "system", content: sys }, { role: "user", content: user }],
         temperature: 0.2,
       },
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
     );
 
-    let content = resp.data?.choices?.[0]?.message?.content?.trim() || "";
+    let content = r.data?.choices?.[0]?.message?.content?.trim() || "";
     if (content.startsWith("```")) content = content.replace(/^```[a-zA-Z]*\n|```$/g, "");
 
     let parsed;
     try { parsed = JSON.parse(content); }
-    catch {
-      parsed = { workflow_spec: { summary: prompt }, make_blueprint: {}, raw: content };
-    }
+    catch { parsed = { workflow_spec: { summary: prompt }, make_blueprint: {}, raw: content }; }
 
     const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     runs.set(runId, { ...parsed, status: "built", dryRun });
-    return res.json({ runId, dryRun, ...parsed });
+    res.json({ runId, dryRun, ...parsed });
   } catch (e) {
     console.error("/build error", e.response?.data || e.message);
     res.status(500).json({ error: "build_failed", detail: e.response?.data || e.message });
   }
 });
 
-// /deploy : 설계 → 메이크 시나리오 업데이트/활성 (반영 확인)
+// /deploy : 설계 → 메이크 시나리오 업데이트/활성(반영 확인)
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
@@ -108,40 +96,26 @@ app.post("/deploy", async (req, res) => {
     if (!dryRun && MAKE_API_KEY && MAKE_SCENARIO_ID) {
       try {
         const headers = { Authorization: `Token ${MAKE_API_KEY}` };
+        const base = MAKE_API_BASE.replace(/\/$/, "");
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
 
-        // 1) 이름에 타임스탬프를 반영해 권한/적용 가시화
-        await axios.patch(
-          `https://api.make.com/v2/scenarios/${scenarioId}`,
-          { name: `AutoScenario ${scenarioId} ${ts}` },
-          { headers }
-        );
+        // 1) 이름 변경(PATCH)로 권한/리전/적용 경로 확인
+        await axios.patch(`${base}/scenarios/${scenarioId}`, { name: `AutoScenario ${scenarioId} ${ts}` }, { headers });
 
-        // 2) 블루프린트 PUT (있을 때만)
+        // 2) 블루프린트 PUT (내용 있을 때만)
         if (hasContent) {
-          await axios.put(
-            `https://api.make.com/v2/scenarios/${scenarioId}`,
-            { blueprint: normalized },
-            { headers }
-          );
+          await axios.put(`${base}/scenarios/${scenarioId}`, { blueprint: normalized }, { headers });
           note += "PUT ok; ";
         } else {
           note += "PUT skipped(empty_bp); ";
         }
 
         // 3) enable
-        await axios.post(
-          `https://api.make.com/v2/scenarios/${scenarioId}/enable`,
-          {},
-          { headers }
-        );
+        await axios.post(`${base}/scenarios/${scenarioId}/enable`, {}, { headers });
         note += "enable ok; ";
 
-        // 4) 적용 여부 확인
-        const g = await axios.get(
-          `https://api.make.com/v2/scenarios/${scenarioId}`,
-          { headers }
-        );
+        // 4) 적용 확인(조회)
+        const g = await axios.get(`${base}/scenarios/${scenarioId}`, { headers });
         const nameAfter = g.data?.name || "";
         if (nameAfter.includes(ts)) applied = true;
       } catch (e) {
@@ -152,7 +126,7 @@ app.post("/deploy", async (req, res) => {
     }
 
     runs.set(runId, { ...item, status, scenarioId, applied });
-    return res.json({ runId, scenarioId, status, applied, note });
+    res.json({ runId, scenarioId, status, applied, note });
   } catch (e) {
     console.error("/deploy error", e.response?.data || e.message);
     res.status(500).json({ error: "deploy_failed", detail: e.response?.data || e.message });
