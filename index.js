@@ -90,7 +90,7 @@ app.post("/build", async (req, res) => {
   }
 });
 
-// /deploy : 이름+블루프린트 "한 번의 PATCH" → start → 확인
+// /deploy : 이름 PATCH → 블루프린트 PATCH(/blueprint) → start → 확인
 app.post("/deploy", async (req, res) => {
   try {
     const { runId, dryRun = true } = req.body || {};
@@ -100,7 +100,7 @@ app.post("/deploy", async (req, res) => {
     let scenarioId = dryRun ? `dry_${runId}` : process.env.MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=single_patch_blueprint_start; ";
+    let note = "mode=name_then_blueprint_start; ";
 
     if (!dryRun) {
       const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
@@ -108,27 +108,35 @@ app.post("/deploy", async (req, res) => {
       const SCENARIO_ID = process.env.MAKE_SCENARIO_ID;
       if (!MAKE_API_KEY || !SCENARIO_ID) return res.status(400).json({ error: "missing_env" });
 
+      const headers = { Authorization: `Token ${MAKE_API_KEY}` };
+
+      // bp 정규화
+      let bp = item.make_blueprint;
+      if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint;
+      if (typeof bp === "string") { try { bp = JSON.parse(bp); } catch {} }
+      const bpValid = bp && typeof bp === "object" && Array.isArray(bp.flow);
+
       try {
-        const headers = { Authorization: `Token ${MAKE_API_KEY}` };
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
         const newName = `AutoScenario ${SCENARIO_ID} ${ts}`;
 
-        // 블루프린트 정규화
-        const normalizeBlueprintMaybe = (bp) => {
-          if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint;
-          if (typeof bp === "string") { try { bp = JSON.parse(bp); } catch {} }
-          const valid = bp && typeof bp === "object" && Array.isArray(bp.flow);
-          return { bp, valid };
-        };
-        const { bp, valid } = normalizeBlueprintMaybe(item.make_blueprint);
+        // 1) 이름 PATCH (/scenarios/{id})
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
+        note += "patch_name_ok; ";
 
-        // ✅ 이름 + (있으면) 블루프린트를 "한 번에 PATCH"
-        const payload = { name: newName };
-        if (valid) payload.blueprint = JSON.stringify(bp);  // 서버는 문자열 선호
-        await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, payload, { headers });
-        note += valid ? "patch_name_blueprint_ok; " : "patch_name_ok; ";
+        // 2) 블루프린트 PATCH (/scenarios/{id}/blueprint) — 문자열로 전송
+        if (bpValid) {
+          await axios.patch(
+            `${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`,
+            { blueprint: JSON.stringify(bp) },
+            { headers }
+          );
+          note += "patch_blueprint_ok; ";
+        } else {
+          note += "blueprint_skip_invalid_shape; ";
+        }
 
-        // start (이미 실행 중이면 skip)
+        // 3) start (이미 실행 중이면 skip)
         try {
           await axios.post(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/start`, {}, { headers });
           note += "start_ok; ";
@@ -138,7 +146,7 @@ app.post("/deploy", async (req, res) => {
           else throw e;
         }
 
-        // 확인
+        // 4) 확인
         const g = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { headers });
         const nameAfter = g.data?.scenario?.name || "";
         if (nameAfter.includes(ts)) applied = true;
