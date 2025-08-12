@@ -124,41 +124,25 @@ app.post("/deploy", async (req, res) => {
         await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}`, { name: newName }, { headers });
         note += "patch_name_ok; ";
 
-        // 2) 블루프린트 갱신 시도 (/scenarios/{id}/blueprint)
-        if (bpValid) {
-          // 현재 scheduling 유지용 GET
-          let schedulingObj = { type: "indefinitely", interval: 900 };
-          try {
-            const bpGet = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, { headers });
-            schedulingObj = bpGet.data?.response?.scheduling || schedulingObj;
-          } catch { /* ignore */ }
+        // 2) 블루프린트 갱신 (/scenarios/{id}/blueprint) — blueprint/scheduling "객체"로 전송
+if (bpValid) {
+  // 현재 scheduling 유지
+  let schedulingObj = { type: "indefinitely", interval: 900 };
+  try {
+    const g = await axios.get(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, { headers });
+    schedulingObj = g.data?.response?.scheduling || schedulingObj;
+  } catch {}
 
-          const payload = {
-            blueprint: JSON.stringify(bp),
-            scheduling: JSON.stringify(schedulingObj)
-          };
-
-          let bpUpdated = false;
-          // 2-1) PUT 우선
-          try {
-            await axios.put(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, payload, { headers });
-            note += "blueprint_put_ok; ";
-            bpUpdated = true;
-          } catch (e1) {
-            // 2-2) PATCH 폴백
-            try {
-              await axios.patch(`${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`, payload, { headers });
-              note += "blueprint_patch_ok; ";
-              bpUpdated = true;
-            } catch (e2) {
-              const d1 = e1.response?.data || e1.message;
-              const d2 = e2.response?.data || e2.message;
-              note += `blueprint_failed(${JSON.stringify(d1)} | ${JSON.stringify(d2)}); `;
-            }
-          }
-        } else {
-          note += "blueprint_skip_invalid_shape; ";
-        }
+  // ✅ 핵심: 문자열(JSON.stringify) 금지. 객체 그대로 보낸다.
+  await axios.put(
+    `${MAKE_API_BASE}/scenarios/${SCENARIO_ID}/blueprint`,
+    { blueprint: bp, scheduling: schedulingObj },
+    { headers }
+  );
+  note += "blueprint_put_ok; ";
+} else {
+  note += "blueprint_skip_invalid_shape; ";
+}
 
         // 3) start (이미 실행 중이면 skip)
         try {
