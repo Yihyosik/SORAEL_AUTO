@@ -1,4 +1,4 @@
-// index.js — RTA 기반 자동화 서버 v1.1 (결과 정리 버전)
+// index.js — RTA 자동화 서버 v1.2 (OpenAI 연동)
 import express from "express";
 import axios from "axios";
 
@@ -32,16 +32,43 @@ app.post("/build", async (req, res) => {
   res.json({ runId, dryRun, plan });
 });
 
-// ========== 3. Module: 자동 모듈 등록 (예시) ==========
+// ========== 3. Module: 자동 모듈 등록 (OpenAI 연동) ==========
 const modules = {
   generate_image: async ({ prompt }) => {
-    const url = `https://fakeimg.pl/600x400/?text=${encodeURIComponent(prompt)}`;
-    return { url, summary: `썸네일 이미지 생성됨`, preview: url };
+    const key = vault.get("openai");
+    if (!key) return { error: "missing OpenAI key" };
+    const response = await axios.post("https://api.openai.com/v1/images/generations", {
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size: "1024x1024"
+    }, {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json"
+      }
+    });
+    const url = response.data.data?.[0]?.url;
+    return { url, summary: `DALL·E 이미지 생성`, preview: url };
   },
+
   write_blog: async ({ topic }) => {
-    const title = `블로그: ${topic}`;
-    const content = `${topic}에 대한 자동 생성 포스팅입니다.`;
-    return { title, content, summary: `블로그 포스트 생성됨` };
+    const key = vault.get("openai");
+    if (!key) return { error: "missing OpenAI key" };
+    const response = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "당신은 블로그 작가입니다." },
+        { role: "user", content: `${topic}에 대해 600자 분량으로 블로그 포스트를 써줘.` }
+      ]
+    }, {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json"
+      }
+    });
+    const content = response.data.choices?.[0]?.message?.content || "";
+    return { title: `블로그: ${topic}`, content, summary: `GPT로 블로그 작성 완료` };
   }
 };
 
@@ -68,7 +95,7 @@ app.post("/run", async (req, res) => {
 
 // ========== 5. 기본 라우트 ==========
 app.get("/", (_req, res) => {
-  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중");
+  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — OpenAI 연동 완료");
 });
 
 const PORT = process.env.PORT || 8080;
