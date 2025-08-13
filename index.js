@@ -1,11 +1,10 @@
-// index.js — RTA 자동화 서버 v1.3 (GPT 모델: gpt-3.5-turbo로 수정)
+// index.js — RTA 자동화 서버 v1.4 (에러 로그 콘솔 출력 추가)
 import express from "express";
 import axios from "axios";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-// ========== 1. Vault: API 키 저장소 ==========
 const vault = new Map();
 
 app.post("/vault", (req, res) => {
@@ -15,7 +14,6 @@ app.post("/vault", (req, res) => {
   res.json({ ok: true, stored: service });
 });
 
-// ========== 2. Build: 명령 → 설계 JSON ==========
 app.post("/build", async (req, res) => {
   const { prompt = "", dryRun = true } = req.body || {};
   if (!prompt) return res.status(400).json({ error: "prompt required" });
@@ -32,7 +30,6 @@ app.post("/build", async (req, res) => {
   res.json({ runId, dryRun, plan });
 });
 
-// ========== 3. Module: 자동 모듈 등록 (OpenAI 연동) ==========
 const modules = {
   generate_image: async ({ prompt }) => {
     const key = vault.get("openai");
@@ -72,7 +69,6 @@ const modules = {
   }
 };
 
-// ========== 4. Run: 실행 엔진 ==========
 app.post("/run", async (req, res) => {
   try {
     const { plan = {} } = req.body || {};
@@ -89,13 +85,13 @@ app.post("/run", async (req, res) => {
 
     res.json({ ok: true, results });
   } catch (e) {
+    console.error("🔥 RUNTIME ERROR:", e);
     res.status(500).json({ error: "run_failed", detail: e.message });
   }
 });
 
-// ========== 5. 기본 라우트 ==========
 app.get("/", (_req, res) => {
-  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — GPT 3.5 적용됨");
+  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — 에러 로그 출력됨");
 });
 
 const PORT = process.env.PORT || 8080;
