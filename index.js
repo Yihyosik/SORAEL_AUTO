@@ -1,4 +1,4 @@
-// index.js — RTA 기반 자동화 서버 v1 (소라엘)
+// index.js — RTA 기반 자동화 서버 v1.1 (결과 정리 버전)
 import express from "express";
 import axios from "axios";
 
@@ -35,10 +35,13 @@ app.post("/build", async (req, res) => {
 // ========== 3. Module: 자동 모듈 등록 (예시) ==========
 const modules = {
   generate_image: async ({ prompt }) => {
-    return { url: `https://fakeimg.pl/600x400/?text=${encodeURIComponent(prompt)}` };
+    const url = `https://fakeimg.pl/600x400/?text=${encodeURIComponent(prompt)}`;
+    return { url, summary: `썸네일 이미지 생성됨`, preview: url };
   },
   write_blog: async ({ topic }) => {
-    return { title: `블로그: ${topic}`, content: `${topic}에 대한 자동 생성 포스팅입니다.` };
+    const title = `블로그: ${topic}`;
+    const content = `${topic}에 대한 자동 생성 포스팅입니다.`;
+    return { title, content, summary: `블로그 포스트 생성됨` };
   }
 };
 
@@ -54,7 +57,7 @@ app.post("/run", async (req, res) => {
       const mod = modules[type];
       if (!mod) return res.status(400).json({ error: `unknown module: ${type}` });
       const output = await mod(args);
-      results.push({ type, output });
+      results.push({ type, ...output });
     }
 
     res.json({ ok: true, results });
