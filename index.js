@@ -1,4 +1,4 @@
-// index.js — RTA 자동화 서버 v1.4 (에러 로그 콘솔 출력 추가)
+// index.js — RTA 자동화 서버 v1.5 (한글 prompt 자동 인코딩 처리)
 import express from "express";
 import axios from "axios";
 
@@ -34,9 +34,10 @@ const modules = {
   generate_image: async ({ prompt }) => {
     const key = vault.get("openai");
     if (!key) return { error: "missing OpenAI key" };
+    const cleanPrompt = decodeURIComponent(encodeURIComponent(prompt));
     const response = await axios.post("https://api.openai.com/v1/images/generations", {
       model: "dall-e-3",
-      prompt,
+      prompt: cleanPrompt,
       n: 1,
       size: "1024x1024"
     }, {
@@ -91,7 +92,7 @@ app.post("/run", async (req, res) => {
 });
 
 app.get("/", (_req, res) => {
-  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — 에러 로그 출력됨");
+  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — 한글 prompt 처리됨");
 });
 
 const PORT = process.env.PORT || 8080;
