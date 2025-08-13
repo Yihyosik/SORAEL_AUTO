@@ -1,4 +1,4 @@
-// index.js — RTA 자동화 서버 v1.2 (OpenAI 연동)
+// index.js — RTA 자동화 서버 v1.3 (GPT 모델: gpt-3.5-turbo로 수정)
 import express from "express";
 import axios from "axios";
 
@@ -56,7 +56,7 @@ const modules = {
     const key = vault.get("openai");
     if (!key) return { error: "missing OpenAI key" };
     const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
+      model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: "당신은 블로그 작가입니다." },
         { role: "user", content: `${topic}에 대해 600자 분량으로 블로그 포스트를 써줘.` }
@@ -95,7 +95,7 @@ app.post("/run", async (req, res) => {
 
 // ========== 5. 기본 라우트 ==========
 app.get("/", (_req, res) => {
-  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — OpenAI 연동 완료");
+  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — GPT 3.5 적용됨");
 });
 
 const PORT = process.env.PORT || 8080;
