@@ -1,21 +1,48 @@
-// server.js — 디버깅용: 모든 Make API 요청 URL 및 상태 콘솔 출력 포함
+// server.js — 루트 + build 포함 디버깅 완성본
 import express from "express";
 import axios from "axios";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-const PORT               = process.env.PORT || 8080;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-const MAKE_API_KEY       = process.env.MAKE_API_KEY || "";
-const MAKE_SCENARIO_ID   = process.env.MAKE_SCENARIO_ID || "2718972";
-const MAKE_API_BASE      = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
-const MAKE_TEAM_ID       = process.env.MAKE_TEAM_ID || "1169858";
+const PORT = process.env.PORT || 8080;
+const MAKE_API_KEY = process.env.MAKE_API_KEY || "";
+const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID || "2718972";
+const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID || "1169858";
 
 const runs = new Map();
 const H = () => ({ Authorization: `Token ${MAKE_API_KEY}` });
 const ts = () => new Date().toISOString().replace(/[:.]/g, "-");
 const qTeam = MAKE_TEAM_ID ? `&team_id=${encodeURIComponent(MAKE_TEAM_ID)}` : "";
+
+app.get("/", (_req, res) => {
+  res.send("✅ API 소라엘 서버 작동 중입니다.");
+});
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
+});
+
+app.post("/build", async (req, res) => {
+  try {
+    const { prompt = "", dryRun = true } = req.body || {};
+    if (!prompt) return res.status(400).json({ error: "prompt required" });
+
+    const blueprint = {
+      flow: [
+        { id: 1, module: "gateway:CustomWebHook", version: 1, mapper: {}, metadata: { label: "Webhook In" } }
+      ],
+      metadata: { name: "AutoFlow", description: prompt }
+    };
+
+    const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    runs.set(runId, { workflow_spec: `요청: ${prompt}`, make_blueprint: blueprint, status: "built", dryRun });
+    res.json({ runId, dryRun, workflow_spec: `Ping: ${prompt}`, make_blueprint: blueprint });
+  } catch (e) {
+    res.status(500).json({ error: "build_failed", detail: e.response?.data || e.message });
+  }
+});
 
 app.post("/deploy", async (req, res) => {
   try {
@@ -33,11 +60,10 @@ app.post("/deploy", async (req, res) => {
 
       const steps = [];
       try {
-        // 로그 1: blueprint GET
         const getUrl = `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`;
         console.log("🔎 GET:", getUrl);
-
         const g = await axios.get(getUrl, { headers: H() });
+
         const resp = g.data?.response || g.data || {};
         steps.push("blueprint_get_ok");
 
@@ -104,4 +130,4 @@ app.post("/deploy", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Server running on :${PORT}`));
+app.listen(PORT, () => console.log(`✅ Server running on :${PORT}`));
