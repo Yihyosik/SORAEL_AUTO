@@ -1,4 +1,4 @@
-// server.js — 자체 오케스트레이션: /run 한 방 실행 (generate_image → write_blog)
+// index.js — 자체 오케스트레이션: /run (generate_image → write_blog)
 const express = require("express");
 const axios = require("axios");
 
@@ -9,7 +9,7 @@ app.use(express.json({ limit: "2mb" }));
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; // 반드시 설정
 
-// ==== OPENAI HELPERS ====
+// ==== OpenAI 클라이언트 ====
 const openai = axios.create({
   baseURL: "https://api.openai.com/v1",
   headers: {
@@ -18,21 +18,35 @@ const openai = axios.create({
   },
 });
 
-// 이미지 생성 (gpt-image-1)
+// ==== 유틸 ====
+const ok = (res, data) => res.json({ ok: true, ...data });
+const err = (res, code, detail) => res.status(code).json({ ok: false, error: "run_failed", detail });
+
+// ==== 이미지 생성 (gpt-image-1): url 또는 b64_json 모두 수용 ====
 async function generateImage(prompt, size = "1024x1024") {
-  const { data } = await openai.post("/images/generations", {
+  const resp = await openai.post("/images/generations", {
     model: "gpt-image-1",
     prompt,
     size
+    // response_format는 보내지 않음 (엔드포인트에 따라 거부됨)
   });
-  const url = data?.data?.[0]?.url;
-  if (!url) throw new Error("이미지 URL 생성 실패");
-  return url;
+  const payload = resp?.data;
+
+  // 1) URL 우선
+  const url = payload?.data?.[0]?.url;
+  if (url) return url;
+
+  // 2) b64_json 응답이면 data URL로 변환
+  const b64 = payload?.data?.[0]?.b64_json;
+  if (b64) return `data:image/png;base64,${b64}`;
+
+  // 3) 둘 다 없으면 원문 리턴해서 오류 맥락 보이게
+  throw new Error(`이미지 생성 응답에 url/b64가 없습니다: ${JSON.stringify(payload)}`);
 }
 
-// 블로그 글 작성 (gpt-4o-mini)
+// ==== 블로그 글 작성 (gpt-4o-mini) ====
 async function writeBlog(topic, imageUrl) {
-  const { data } = await openai.post("/chat/completions", {
+  const resp = await openai.post("/chat/completions", {
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: "너는 간결하고 읽기 쉬운 한국어 블로그 글을 작성하는 어시스턴트다." },
@@ -48,13 +62,14 @@ async function writeBlog(topic, imageUrl) {
     ],
     temperature: 0.7
   });
-  const text = data?.choices?.[0]?.message?.content?.trim();
+
+  const text = resp?.data?.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("블로그 본문 생성 실패");
   return text;
 }
 
 // ==== ROUTES ====
-app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+app.get("/health", (_req, res) => ok(res, { ts: new Date().toISOString() }));
 
 /**
  * /run
@@ -71,44 +86,43 @@ app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOStrin
  */
 app.post("/run", async (req, res) => {
   try {
-    if (!OPENAI_API_KEY) return res.status(400).json({ error: "missing_OPENAI_API_KEY" });
+    if (!OPENAI_API_KEY) return res.status(400).json({ ok: false, error: "missing_OPENAI_API_KEY" });
 
     const plan = req.body?.plan;
     if (!plan || !Array.isArray(plan.modules)) {
-      return res.status(400).json({ error: "invalid_plan" });
+      return res.status(400).json({ ok: false, error: "invalid_plan" });
     }
 
-    let context = {}; // 이전 모듈 산출물 공유
     const results = [];
+    const context = {};
 
-    for (const m of plan.modules) {
-      const type = m?.type;
-      if (!type) continue;
+    for (const mod of plan.modules) {
+      const t = mod?.type;
 
-      if (type === "generate_image") {
-        const prompt = m.prompt || "단색의 부드러운 그래디언트 배경, 일러스트 스타일";
-        const size = m.size || "1024x1024";
+      if (t === "generate_image") {
+        const prompt = mod.prompt || "부드러운 그래디언트 배경, 일러스트 스타일";
+        const size = mod.size || "1024x1024";
         const imageUrl = await generateImage(prompt, size);
         context.image_url = imageUrl;
-        results.push({ type, ok: true, image_url: imageUrl });
+        results.push({ type: t, ok: true, image_url: imageUrl });
       }
 
-      else if (type === "write_blog") {
-        const topic = m.topic || "신상품 3개 리뷰 작성";
+      else if (t === "write_blog") {
+        const topic = mod.topic || "신상품 3개 리뷰 작성";
         const blog = await writeBlog(topic, context.image_url);
         context.blog_post = blog;
-        results.push({ type, ok: true, blog_post: blog });
+        results.push({ type: t, ok: true, blog_post: blog });
       }
 
       else {
-        results.push({ type, ok: false, error: "unknown_module" });
+        results.push({ type: t || "unknown", ok: false, error: "unknown_module" });
       }
     }
 
-    return res.json({ ok: true, results, context });
+    return ok(res, { results, context });
   } catch (e) {
     const detail = e?.response?.data || e?.message || String(e);
-    return res.status(500).json({ ok: false, error: "run_failed", detail });
+    return err(res, 500, detail);
   }
 });
 
