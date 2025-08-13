@@ -1,69 +1,84 @@
-// index.js — 자체 오케스트레이션: /run (generate_image → write_blog)
+// index.js — 자체 오케스트레이션(안정판)
+// - 이미지: url 있으면 그대로 사용
+// - url 없고 b64만 오면 서버에 파일 저장 → 짧은 URL 응답
+// - Axios 타임아웃/에러 처리 강화
 const express = require("express");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
+// 정적 파일 제공 디렉토리 (생성)
+const FILE_DIR = path.join(process.cwd(), "files");
+if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
+app.use("/files", express.static(FILE_DIR, { maxAge: "1d", immutable: true }));
+
 // ==== ENV ====
 const PORT = process.env.PORT || 8080;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; // 반드시 설정
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; // 필수
 
-// ==== OpenAI 클라이언트 ====
+// ==== OpenAI 클라이언트 (타임아웃/재시도 최소화) ====
 const openai = axios.create({
   baseURL: "https://api.openai.com/v1",
   headers: {
     Authorization: `Bearer ${OPENAI_API_KEY}`,
     "Content-Type": "application/json"
   },
+  timeout: 120000, // 120s
 });
 
 // ==== 유틸 ====
 const ok = (res, data) => res.json({ ok: true, ...data });
 const err = (res, code, detail) => res.status(code).json({ ok: false, error: "run_failed", detail });
+const makeId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-// ==== 이미지 생성 (gpt-image-1): url 또는 b64_json 모두 수용 ====
-async function generateImage(prompt, size = "1024x1024") {
-  const resp = await openai.post("/images/generations", {
+// ==== 이미지 생성 (gpt-image-1): url 우선, b64면 파일로 저장 후 URL 반환 ====
+async function generateImage(prompt, size, baseUrl) {
+  const { data: payload } = await openai.post("/images/generations", {
     model: "gpt-image-1",
     prompt,
     size
-    // response_format는 보내지 않음 (엔드포인트에 따라 거부됨)
+    // response_format는 보내지 않음 (엔드포인트에 따라 거부될 수 있음)
   });
-  const payload = resp?.data;
 
   // 1) URL 우선
   const url = payload?.data?.[0]?.url;
   if (url) return url;
 
-  // 2) b64_json 응답이면 data URL로 변환
+  // 2) b64_json → 로컬 파일로 저장 후 /files URL 반환(응답을 작게 유지)
   const b64 = payload?.data?.[0]?.b64_json;
-  if (b64) return `data:image/png;base64,${b64}`;
+  if (b64) {
+    const id = makeId();
+    const filePath = path.join(FILE_DIR, `${id}.png`);
+    fs.writeFileSync(filePath, Buffer.from(b64, "base64"));
+    return `${baseUrl}/files/${id}.png`;
+  }
 
-  // 3) 둘 다 없으면 원문 리턴해서 오류 맥락 보이게
-  throw new Error(`이미지 생성 응답에 url/b64가 없습니다: ${JSON.stringify(payload)}`);
+  // 3) 둘 다 없으면 원문 포함해 명확히 실패
+  throw new Error(`이미지 응답에 url/b64 없음: ${JSON.stringify(payload)}`);
 }
 
 // ==== 블로그 글 작성 (gpt-4o-mini) ====
 async function writeBlog(topic, imageUrl) {
-  const resp = await openai.post("/chat/completions", {
+  const { data } = await openai.post("/chat/completions", {
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: "너는 간결하고 읽기 쉬운 한국어 블로그 글을 작성하는 어시스턴트다." },
       {
         role: "user",
         content:
-          `다음 주제로 800~1000자 리뷰 글 작성.\n` +
-          `- 주제: ${topic}\n` +
-          (imageUrl ? `- 본문에 아래 이미지 URL 1회 삽입: ${imageUrl}\n` : "") +
-          `- 구성: 한 문단 요약 → 제품 3개 핵심 포인트(불릿) → 간단 비교표(텍스트) → 마무리 추천\n` +
-          `- 어투: 담백, 과장 금지, 표기는 마크다운`
+`다음 주제로 800~1000자 리뷰 글 작성.
+- 주제: ${topic}
+${imageUrl ? `- 본문에 아래 이미지 URL 1회 삽입: ${imageUrl}` : ""}
+- 구성: 한 문단 요약 → 제품 3개 핵심 포인트(불릿) → 간단 비교표(텍스트) → 마무리 추천
+- 어투: 담백, 과장 금지, 표기는 마크다운`
       }
     ],
     temperature: 0.7
   });
-
-  const text = resp?.data?.choices?.[0]?.message?.content?.trim();
+  const text = data?.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("블로그 본문 생성 실패");
   return text;
 }
@@ -73,7 +88,7 @@ app.get("/health", (_req, res) => ok(res, { ts: new Date().toISOString() }));
 
 /**
  * /run
- * body 예시:
+ * body:
  * {
  *   "plan": {
  *     "action": "auto_execute",
@@ -93,6 +108,7 @@ app.post("/run", async (req, res) => {
       return res.status(400).json({ ok: false, error: "invalid_plan" });
     }
 
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
     const results = [];
     const context = {};
 
@@ -102,7 +118,7 @@ app.post("/run", async (req, res) => {
       if (t === "generate_image") {
         const prompt = mod.prompt || "부드러운 그래디언트 배경, 일러스트 스타일";
         const size = mod.size || "1024x1024";
-        const imageUrl = await generateImage(prompt, size);
+        const imageUrl = await generateImage(prompt, size, baseUrl);
         context.image_url = imageUrl;
         results.push({ type: t, ok: true, image_url: imageUrl });
       }
