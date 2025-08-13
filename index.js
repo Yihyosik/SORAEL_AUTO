@@ -1,133 +1,72 @@
-// server.js — 루트 + build 포함 디버깅 완성본
+// index.js — RTA 기반 자동화 서버 v1 (소라엘)
 import express from "express";
 import axios from "axios";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-const PORT = process.env.PORT || 8080;
-const MAKE_API_KEY = process.env.MAKE_API_KEY || "";
-const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID || "2718972";
-const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
-const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID || "1169858";
+// ========== 1. Vault: API 키 저장소 ==========
+const vault = new Map();
 
-const runs = new Map();
-const H = () => ({ Authorization: `Token ${MAKE_API_KEY}` });
-const ts = () => new Date().toISOString().replace(/[:.]/g, "-");
-const qTeam = MAKE_TEAM_ID ? `&team_id=${encodeURIComponent(MAKE_TEAM_ID)}` : "";
-
-app.get("/", (_req, res) => {
-  res.send("✅ API 소라엘 서버 작동 중입니다.");
+app.post("/vault", (req, res) => {
+  const { service, key } = req.body || {};
+  if (!service || !key) return res.status(400).json({ error: "service & key required" });
+  vault.set(service, key);
+  res.json({ ok: true, stored: service });
 });
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, uptime: process.uptime() });
-});
-
+// ========== 2. Build: 명령 → 설계 JSON ==========
 app.post("/build", async (req, res) => {
-  try {
-    const { prompt = "", dryRun = true } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: "prompt required" });
+  const { prompt = "", dryRun = true } = req.body || {};
+  if (!prompt) return res.status(400).json({ error: "prompt required" });
 
-    const blueprint = {
-      flow: [
-        { id: 1, module: "gateway:CustomWebHook", version: 1, mapper: {}, metadata: { label: "Webhook In" } }
-      ],
-      metadata: { name: "AutoFlow", description: prompt }
-    };
+  const plan = {
+    action: "auto_execute",
+    modules: [
+      { type: "generate_image", prompt },
+      { type: "write_blog", topic: prompt }
+    ]
+  };
 
-    const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    runs.set(runId, { workflow_spec: `요청: ${prompt}`, make_blueprint: blueprint, status: "built", dryRun });
-    res.json({ runId, dryRun, workflow_spec: `Ping: ${prompt}`, make_blueprint: blueprint });
-  } catch (e) {
-    res.status(500).json({ error: "build_failed", detail: e.response?.data || e.message });
-  }
+  const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  res.json({ runId, dryRun, plan });
 });
 
-app.post("/deploy", async (req, res) => {
+// ========== 3. Module: 자동 모듈 등록 (예시) ==========
+const modules = {
+  generate_image: async ({ prompt }) => {
+    return { url: `https://fakeimg.pl/600x400/?text=${encodeURIComponent(prompt)}` };
+  },
+  write_blog: async ({ topic }) => {
+    return { title: `블로그: ${topic}`, content: `${topic}에 대한 자동 생성 포스팅입니다.` };
+  }
+};
+
+// ========== 4. Run: 실행 엔진 ==========
+app.post("/run", async (req, res) => {
   try {
-    const { runId, dryRun = true } = req.body || {};
-    if (!runId || !runs.has(runId)) return res.status(400).json({ error: "invalid runId" });
+    const { plan = {} } = req.body || {};
+    const { modules: steps = [] } = plan;
 
-    const item = runs.get(runId);
-    let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
-    let status = dryRun ? "active(dryRun)" : "active(realRun)";
-    let applied = false;
-    let note = "mode=blueprint_put_then_patch_name(team_id); ";
-
-    if (!dryRun) {
-      if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) return res.status(400).json({ error: "missing_env" });
-
-      const steps = [];
-      try {
-        const getUrl = `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`;
-        console.log("🔎 GET:", getUrl);
-        const g = await axios.get(getUrl, { headers: H() });
-
-        const resp = g.data?.response || g.data || {};
-        steps.push("blueprint_get_ok");
-
-        let currentBlueprint = resp.blueprint || {};
-        let currentScheduling = resp.scheduling || { type: "indefinitely", interval: 900 };
-
-        let bp = item.make_blueprint;
-        if (bp && typeof bp === "object" && bp.response?.blueprint) bp = bp.response.blueprint;
-        if (typeof bp === "string") { try { bp = JSON.parse(bp); } catch { bp = null; } }
-        if (bp && Array.isArray(bp.flow)) currentBlueprint = { ...currentBlueprint, flow: bp.flow };
-        if (currentBlueprint && typeof currentBlueprint === "object") {
-          currentBlueprint.__meta = { by: "api-sorael", at: new Date().toISOString() };
-        }
-
-        const putUrl = `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`;
-        console.log("📤 PUT:", putUrl);
-
-        await axios.put(putUrl, {
-          blueprint: currentBlueprint,
-          scheduling: currentScheduling
-        }, {
-          headers: { ...H(), "Content-Type": "application/json" }
-        });
-        steps.push("blueprint_put_ok");
-
-        const stamp = ts();
-        const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${stamp}`;
-        const patchUrl = `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}${qTeam}`;
-        console.log("✏️ PATCH:", patchUrl);
-
-        await axios.patch(patchUrl, { name: newName }, { headers: H() });
-        steps.push("name_patch_ok");
-
-        const startUrl = `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start${qTeam}`;
-        console.log("▶️ START:", startUrl);
-
-        try {
-          await axios.post(startUrl, {}, { headers: H() });
-          steps.push("start_ok");
-        } catch (e2) {
-          if (e2?.response?.data?.code === "IM306") steps.push("start_skipped_already_running");
-          else throw e2;
-        }
-
-        const getFinal = `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}${qTeam}`;
-        console.log("📥 FINAL CHECK:", getFinal);
-
-        const after = await axios.get(getFinal, { headers: H() });
-        if ((after.data?.scenario?.name || "").includes(stamp)) applied = true;
-
-        scenarioId = MAKE_SCENARIO_ID;
-        note += steps.join("; ") + "; ";
-      } catch (e) {
-        const detail = e.response?.data || e.message;
-        console.log("❌ ERROR DETAIL:", detail);
-        note += `error=${typeof detail === "string" ? detail : JSON.stringify(detail)}`;
-      }
+    const results = [];
+    for (const step of steps) {
+      const { type, ...args } = step;
+      const mod = modules[type];
+      if (!mod) return res.status(400).json({ error: `unknown module: ${type}` });
+      const output = await mod(args);
+      results.push({ type, output });
     }
 
-    runs.set(runId, { ...item, status, scenarioId, applied });
-    res.json({ runId, scenarioId, status, applied, note });
+    res.json({ ok: true, results });
   } catch (e) {
-    res.status(500).json({ error: "deploy_failed", detail: e.message });
+    res.status(500).json({ error: "run_failed", detail: e.message });
   }
 });
 
-app.listen(PORT, () => console.log(`✅ Server running on :${PORT}`));
+// ========== 5. 기본 라우트 ==========
+app.get("/", (_req, res) => {
+  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중");
+});
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`🚀 Server running on :${PORT}`));
