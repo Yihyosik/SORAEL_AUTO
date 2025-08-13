@@ -1,4 +1,4 @@
-// server.js — Make(us2) team_id 제거 + 텔레그램 자동응답 버전
+// server.js — team_id 복원 + 텔레그램 포함 완성형
 import express from "express";
 import axios from "axios";
 
@@ -11,11 +11,13 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const MAKE_API_KEY       = process.env.MAKE_API_KEY || "";
 const MAKE_SCENARIO_ID   = process.env.MAKE_SCENARIO_ID || "2718972";
 const MAKE_API_BASE      = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").replace(/\/$/, "");
+const MAKE_TEAM_ID       = process.env.MAKE_TEAM_ID || "1169858";
 
 /* ===== STATE & UTILS ===== */
 const runs = new Map();
 const H = () => ({ Authorization: `Token ${MAKE_API_KEY}` });
 const ts = () => new Date().toISOString().replace(/[:.]/g, "-");
+const qTeam = MAKE_TEAM_ID ? `&team_id=${encodeURIComponent(MAKE_TEAM_ID)}` : "";
 
 /* ===== ROUTES ===== */
 app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
@@ -49,7 +51,7 @@ app.post("/deploy", async (req, res) => {
     let scenarioId = dryRun ? `dry_${runId}` : MAKE_SCENARIO_ID;
     let status = dryRun ? "active(dryRun)" : "active(realRun)";
     let applied = false;
-    let note = "mode=blueprint_put_then_patch_name; ";
+    let note = "mode=blueprint_put_then_patch_name(team_id); ";
 
     if (!dryRun) {
       if (!MAKE_API_KEY || !MAKE_SCENARIO_ID) return res.status(400).json({ error: "missing_env" });
@@ -57,7 +59,7 @@ app.post("/deploy", async (req, res) => {
       const steps = [];
       try {
         const g = await axios.get(
-          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true`,
+          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`,
           { headers: H() }
         );
         const resp = g.data?.response || g.data || {};
@@ -75,7 +77,7 @@ app.post("/deploy", async (req, res) => {
         }
 
         await axios.put(
-          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true`,
+          `${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/blueprint?confirmed=true${qTeam}`,
           { blueprint: currentBlueprint, scheduling: currentScheduling },
           { headers: { ...H(), "Content-Type": "application/json" } }
         );
@@ -83,18 +85,18 @@ app.post("/deploy", async (req, res) => {
 
         const stamp = ts();
         const newName = `AutoScenario ${MAKE_SCENARIO_ID} ${stamp}`;
-        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { name: newName }, { headers: H() });
+        await axios.patch(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}${qTeam}`, { name: newName }, { headers: H() });
         steps.push("name_patch_ok");
 
         try {
-          await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start`, {}, { headers: H() });
+          await axios.post(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}/start${qTeam}`, {}, { headers: H() });
           steps.push("start_ok");
         } catch (e2) {
           if (e2?.response?.data?.code === "IM306") steps.push("start_skipped_already_running");
           else throw e2;
         }
 
-        const after = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}`, { headers: H() });
+        const after = await axios.get(`${MAKE_API_BASE}/scenarios/${MAKE_SCENARIO_ID}${qTeam}`, { headers: H() });
         if ((after.data?.scenario?.name || "").includes(stamp)) applied = true;
 
         scenarioId = MAKE_SCENARIO_ID;
@@ -112,7 +114,6 @@ app.post("/deploy", async (req, res) => {
   }
 });
 
-// ✅ 텔레그램 메시지 수신 → /build → /deploy → 결과 자동응답
 app.post("/telegram/webhook", async (req, res) => {
   try {
     const update = req.body;
