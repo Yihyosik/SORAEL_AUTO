@@ -1,4 +1,4 @@
-// index.js — RTA 자동화 서버 v1.5 (한글 prompt 자동 인코딩 처리)
+// index.js — RTA 자동화 서버 v1.6 (OpenAI 에러 메시지 출력 추가)
 import express from "express";
 import axios from "axios";
 
@@ -35,38 +35,50 @@ const modules = {
     const key = vault.get("openai");
     if (!key) return { error: "missing OpenAI key" };
     const cleanPrompt = decodeURIComponent(encodeURIComponent(prompt));
-    const response = await axios.post("https://api.openai.com/v1/images/generations", {
-      model: "dall-e-3",
-      prompt: cleanPrompt,
-      n: 1,
-      size: "1024x1024"
-    }, {
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json"
-      }
-    });
-    const url = response.data.data?.[0]?.url;
-    return { url, summary: `DALL·E 이미지 생성`, preview: url };
+    try {
+      const response = await axios.post("https://api.openai.com/v1/images/generations", {
+        model: "dall-e-3",
+        prompt: cleanPrompt,
+        n: 1,
+        size: "1024x1024"
+      }, {
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json"
+        }
+      });
+      const url = response.data.data?.[0]?.url;
+      return { url, summary: `DALL·E 이미지 생성`, preview: url };
+    } catch (e) {
+      const msg = e?.response?.data?.error?.message || e.message;
+      console.error("🔥 OpenAI IMAGE ERROR:", msg);
+      return { error: msg };
+    }
   },
 
   write_blog: async ({ topic }) => {
     const key = vault.get("openai");
     if (!key) return { error: "missing OpenAI key" };
-    const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-3.5-turbo",
-      messages: [
-        { role: "system", content: "당신은 블로그 작가입니다." },
-        { role: "user", content: `${topic}에 대해 600자 분량으로 블로그 포스트를 써줘.` }
-      ]
-    }, {
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json"
-      }
-    });
-    const content = response.data.choices?.[0]?.message?.content || "";
-    return { title: `블로그: ${topic}`, content, summary: `GPT로 블로그 작성 완료` };
+    try {
+      const response = await axios.post("https://api.openai.com/v1/chat/completions", {
+        model: "gpt-3.5-turbo",
+        messages: [
+          { role: "system", content: "당신은 블로그 작가입니다." },
+          { role: "user", content: `${topic}에 대해 600자 분량으로 블로그 포스트를 써줘.` }
+        ]
+      }, {
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json"
+        }
+      });
+      const content = response.data.choices?.[0]?.message?.content || "";
+      return { title: `블로그: ${topic}`, content, summary: `GPT로 블로그 작성 완료` };
+    } catch (e) {
+      const msg = e?.response?.data?.error?.message || e.message;
+      console.error("🔥 OpenAI TEXT ERROR:", msg);
+      return { error: msg };
+    }
   }
 };
 
@@ -92,7 +104,7 @@ app.post("/run", async (req, res) => {
 });
 
 app.get("/", (_req, res) => {
-  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — 한글 prompt 처리됨");
+  res.send("✅ RTA 기반 소라엘 자동화 서버 작동 중 — OpenAI 에러 메시지 출력됨");
 });
 
 const PORT = process.env.PORT || 8080;
