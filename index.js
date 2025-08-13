@@ -23,9 +23,7 @@ async function generateImage(prompt, size = "1024x1024") {
   const { data } = await openai.post("/images/generations", {
     model: "gpt-image-1",
     prompt,
-    size,
-    // url 응답이 일반적이지만, 보안/호환 위해 url 선호
-    response_format: "url"
+    size
   });
   const url = data?.data?.[0]?.url;
   if (!url) throw new Error("이미지 URL 생성 실패");
