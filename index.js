@@ -1,6 +1,8 @@
-// index.js — 오케스트레이션 안정판 (원샷)
+// index.js — 오케스트레이션 안정판 (+ Make 연동/보안 라우트 포함 완전본)
 // - generate_image: url 우선, 없으면 b64→파일 저장, 60s 타임아웃, 2회 재시도, 1024→512 자동 다운스케일
 // - write_blog: 안정 파라미터, JSON 실패 원문 반환
+// - ADMIN_TOKEN 보안, /__whoami, /make/ping, /make/deploy(Off→PUT→On), /make/run(API 실행)
+
 const express = require("express");
 const axios = require("axios");
 const fs = require("fs");
@@ -16,7 +18,10 @@ app.use("/files", express.static(FILE_DIR, { maxAge: "1d", immutable: true }));
 
 // ==== ENV ====
 const PORT = process.env.PORT || 8080;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; // 필수
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; // (선택) 이미지/블로그 모듈에서 사용
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";        // (권장) API 보호용
+const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").trim();
+const MAKE_TOKEN = (process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "").trim(); // 호환성
 
 // ==== OpenAI 클라이언트 ====
 const openai = axios.create({
@@ -94,11 +99,86 @@ ${imageUrl ? `- 본문에 아래 이미지 URL 1회 삽입: ${imageUrl}` : ""}
   return text;
 }
 
-// === 라우트 ===
+// === 공개 라우트: 헬스 ===
 app.get("/health", (_req, res) => ok(res, { ts: new Date().toISOString() }));
 
-// 임시 파일 정리(24h 지난 PNG 삭제) — 필요시 스케줄러에서 호출
-app.post("/housekeep", (req, res) => {
+// === 디버그: 현재 빌드/라우트 스냅샷 ===
+app.get("/__whoami", (_req, res) => {
+  res.json({
+    ok: true,
+    tag: "whoami",
+    ts: new Date().toISOString(),
+    env: {
+      has_OPENAI_API_KEY: !!OPENAI_API_KEY,
+      has_ADMIN_TOKEN: !!ADMIN_TOKEN,
+      MAKE_API_BASE,
+      has_MAKE_TOKEN: !!MAKE_TOKEN
+    },
+    routes: ["/health", "/__whoami", "/files/*", "/housekeep", "/run", "/make/ping", "/make/deploy", "/make/run"]
+  });
+});
+
+// === Admin Token 보호 (헬스/디버그 제외 전부 보호 권장) ===
+app.use((req, res, next) => {
+  if (req.path === "/health" || req.path === "/__whoami") return next();
+  if (!ADMIN_TOKEN) return next(); // 토큰 미설정 시 보호 비활성
+  const got = req.headers["x-admin-token"];
+  if (got === ADMIN_TOKEN) return next();
+  return res.status(401).json({ ok: false, error: "unauthorized" });
+});
+
+// === Make API 클라이언트 ===
+const make = axios.create({
+  baseURL: MAKE_API_BASE,
+  headers: { Authorization: `Token ${MAKE_TOKEN}`, "Content-Type": "application/json" },
+  timeout: 15000
+});
+
+// === Make 라우트 ===
+// 연결 확인
+app.get("/make/ping", async (_req, res) => {
+  try {
+    if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
+    const r = await make.get(`/scenarios?limit=1`);
+    res.json({ ok: true, sample: r.data });
+  } catch (e) {
+    res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
+  }
+});
+
+// 배포: 비활성화 → 블루프린트 PUT → 활성화
+app.post("/make/deploy", async (req, res) => {
+  try {
+    const { scenarioId, blueprint } = req.body || {};
+    if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
+    if (!scenarioId || !blueprint) return res.status(400).json({ ok: false, error: "need scenarioId & blueprint" });
+
+    await make.post(`/scenarios/${scenarioId}/deactivate`);
+    await make.put(`/scenarios/${scenarioId}/blueprint`, blueprint, { headers: { "Content-Type": "application/json" } });
+    await make.post(`/scenarios/${scenarioId}/activate`);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
+  }
+});
+
+// 실행: API 직결(run)
+app.post("/make/run", async (req, res) => {
+  try {
+    const { scenarioId } = req.body || {};
+    if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
+    if (!scenarioId) return res.status(400).json({ ok: false, error: "need scenarioId" });
+
+    const r = await make.post(`/scenarios/${scenarioId}/run`);
+    res.json({ ok: true, result: r.data || true });
+  } catch (e) {
+    res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
+  }
+});
+
+// === 임시 파일 정리(24h 지난 PNG 삭제) — 필요시 스케줄러에서 호출
+app.post("/housekeep", (_req, res) => {
   const now = Date.now(), DAY = 24 * 60 * 60 * 1000;
   let removed = 0;
   for (const f of fs.readdirSync(FILE_DIR)) {
@@ -160,4 +240,5 @@ app.post("/run", async (req, res) => {
 process.on("unhandledRejection", (r) => console.error("UnhandledRejection:", r));
 process.on("uncaughtException", (e) => console.error("UncaughtException:", e));
 
+// 서버 실행
 app.listen(PORT, () => console.log(`orchestrator running on :${PORT}`));
