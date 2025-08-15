@@ -10,15 +10,33 @@ const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage, HumanMessage, AIMessage } = require('@langchain/core/messages');
 
+// ===== 환경변수 읽기 =====
 const PORT = process.env.PORT || 8080;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const MAKE_API_BASE = process.env.MAKE_API_BASE || "https://us2.make.com/api/v2";
 const MAKE_TOKEN = process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "";
 const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID || "";
+const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID || "";
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || "").trim();
 const GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || "").trim();
+const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
 
+// ===== 디버그 출력 =====
+console.log("=== 🚀 환경변수 디버그 출력 (서버 부팅 시) ===");
+console.log("PORT:", PORT);
+console.log("ADMIN_TOKEN:", ADMIN_TOKEN || "[없음]");
+console.log("MAKE_API_BASE:", MAKE_API_BASE);
+console.log("MAKE_TOKEN:", MAKE_TOKEN ? "[설정됨]" : "[없음]");
+console.log("MAKE_TEAM_ID:", MAKE_TEAM_ID || "[없음]");
+console.log("MAKE_SCENARIO_ID:", MAKE_SCENARIO_ID || "[없음]");
+console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "[설정됨]" : "[없음]");
+console.log("GOOGLE_API_KEY:", GOOGLE_API_KEY ? "[설정됨]" : "[없음]");
+console.log("GOOGLE_CSE_ID:", GOOGLE_CSE_ID || "[없음]");
+console.log("SCENARIO_WEBHOOK_URL:", SCENARIO_WEBHOOK_URL || "[없음]");
+console.log("==========================================");
+
+// ===== 앱 초기화 =====
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -73,23 +91,33 @@ const llm = new ChatOpenAI({
   temperature: 0.7,
   modelName: 'gpt-4o-mini'
 });
-const googleSearchTool = new GoogleCustomSearch({
-  apiKey: GOOGLE_API_KEY,
-  engineId: GOOGLE_CSE_ID
-});
+
+let googleSearchTool = null;
+if (GOOGLE_API_KEY && GOOGLE_CSE_ID) {
+  googleSearchTool = new GoogleCustomSearch({
+    apiKey: GOOGLE_API_KEY,
+    engineId: GOOGLE_CSE_ID
+  });
+} else {
+  console.warn("⚠ Google 검색 비활성화됨: GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 없습니다.");
+}
+
 const chatPrompt = ChatPromptTemplate.fromMessages([
   new SystemMessage(SORAIEL_IDENTITY),
   new MessagesPlaceholder("chatHistory"),
   new HumanMessage("사용자 입력: {input}"),
   new MessagesPlaceholder("agent_scratchpad")
 ]);
-let agentExecutor;
+
+let agentExecutor = null;
 (async () => {
-  agentExecutor = await initializeAgentExecutorWithOptions(
-    [googleSearchTool],
-    llm,
-    { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
-  );
+  if (googleSearchTool) {
+    agentExecutor = await initializeAgentExecutorWithOptions(
+      [googleSearchTool],
+      llm,
+      { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
+    );
+  }
 })();
 
 app.post('/l2/api/dialogue', async (req, res) => {
@@ -102,7 +130,6 @@ app.post('/l2/api/dialogue', async (req, res) => {
   try {
     let aiResponse = "";
 
-    // 포스팅 생성 명령
     if (/(포스팅|글 작성|콘텐츠|블로그)/.test(lastMessage)) {
       const post = await llm.invoke([
         new SystemMessage(SORAIEL_IDENTITY + "\n\n마케팅 콘텐츠 전문가로서 포스팅을 구조적으로 작성하세요."),
@@ -110,16 +137,14 @@ app.post('/l2/api/dialogue', async (req, res) => {
       ]);
       aiResponse = post.content;
 
-      // 업로드 요청 시 Make 실행
       if (/(업로드|게시)/.test(lastMessage) && MAKE_TEAM_ID && MAKE_TOKEN) {
-        const makeRes = await callMake("POST", `/scenarios/${process.env.MAKE_SCENARIO_ID}/run`, {
+        const makeRes = await callMake("POST", `/scenarios/${MAKE_SCENARIO_ID}/run`, {
           params: { teamId: MAKE_TEAM_ID },
           data: { content: aiResponse }
         });
         aiResponse += `\n\n✅ 업로드 완료: ${JSON.stringify(makeRes)}`;
       }
-    } else {
-      // 일반 대화/검색
+    } else if (agentExecutor) {
       const result = await agentExecutor.invoke({
         input: lastMessage,
         chatHistory: conversationHistory.slice(0, -1).map(msg => {
@@ -128,6 +153,8 @@ app.post('/l2/api/dialogue', async (req, res) => {
         })
       });
       aiResponse = result.output;
+    } else {
+      aiResponse = "⚠ 현재 Google 검색 기능이 비활성화되어 있습니다. 환경변수를 확인해주세요.";
     }
 
     conversationHistory.push({ role: 'assistant', content: aiResponse });
