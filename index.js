@@ -21,6 +21,7 @@ const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || "").trim();
 const GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || "").trim();
 const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
+const TEST_MODE = process.env.TEST_MODE === "true";
 
 // ===== 디버그 출력 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
@@ -31,7 +32,7 @@ console.log({
   OPENAI_API_KEY: OPENAI_API_KEY ? "[설정됨]" : "[없음]",
   GOOGLE_API_KEY: GOOGLE_API_KEY ? "[설정됨]" : "[없음]",
   GOOGLE_CSE_ID, SCENARIO_WEBHOOK_URL,
-  NODE_ENV: process.env.NODE_ENV, PWD: process.env.PWD
+  TEST_MODE, NODE_ENV: process.env.NODE_ENV, PWD: process.env.PWD
 });
 console.log("================================================================");
 
@@ -109,22 +110,29 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
   new MessagesPlaceholder("agent_scratchpad")
 ]);
 
+// ===== 핵심: 응답 문제 해결 =====
 app.post('/l2/api/dialogue', async (req, res) => {
-  const lastMessage = req.body.message;
-  conversationHistory.push({ role: 'user', content: lastMessage });
-  if (conversationHistory.length > MAX_HISTORY_LENGTH) {
-    conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
-  }
+  console.log("📩 /l2/api/dialogue 진입:", req.body);
+
+  const lastMessage = req.body.message || "";
+  let aiResponse = "";
 
   try {
-    let aiResponse = "";
+    if (TEST_MODE) {
+      console.log("🧪 TEST_MODE 활성화 — AI 호출 생략");
+      return res.json({ response: `pong: ${lastMessage}` });
+    }
+
+    conversationHistory.push({ role: 'user', content: lastMessage });
+    if (conversationHistory.length > MAX_HISTORY_LENGTH) {
+      conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
+    }
 
     if (!agentExecutor) {
       const tool = ensureGoogleSearch();
       if (tool) {
         agentExecutor = await initializeAgentExecutorWithOptions(
-          [tool],
-          llm,
+          [tool], llm,
           { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
         );
       }
@@ -133,21 +141,23 @@ app.post('/l2/api/dialogue', async (req, res) => {
     if (agentExecutor) {
       const result = await agentExecutor.invoke({
         input: lastMessage,
-        chatHistory: conversationHistory.slice(0, -1).map(msg => {
-          if (msg.role === 'user') return new HumanMessage(msg.content);
-          if (msg.role === 'assistant') return new AIMessage(msg.content);
-        })
+        chatHistory: conversationHistory.slice(0, -1).map(msg =>
+          msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)
+        )
       });
       aiResponse = result.output;
     } else {
-      aiResponse = "⚠ 현재 Google 검색 기능이 비활성화되어 있습니다.";
+      aiResponse = "⚠ Google 검색 기능 비활성화 상태";
     }
 
     conversationHistory.push({ role: 'assistant', content: aiResponse });
     saveHistory();
-    res.json({ response: aiResponse });
+
+    return res.json({ response: aiResponse });
+
   } catch (error) {
-    res.status(500).json({ error: '서버 처리 중 오류', detail: error.message });
+    console.error("❌ dialogue error:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 
