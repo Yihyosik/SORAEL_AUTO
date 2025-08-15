@@ -25,11 +25,11 @@ const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
 // ===== 부팅 시 환경변수 확인 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
 console.log({
-  GOOGLE_API_KEY_CONST,
-  GOOGLE_CSE_ID_CONST
+    GOOGLE_API_KEY_CONST,
+    GOOGLE_CSE_ID_CONST
 });
 if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
-  console.error("🚫 필수 환경변수 누락: GOOGLE_API_KEY, GOOGLE_CSE_ID를 확인하세요.");
+    console.error("🚫 필수 환경변수 누락: GOOGLE_API_KEY, GOOGLE_CSE_ID를 확인하세요.");
 }
 console.log("================================================================");
 
@@ -39,28 +39,28 @@ app.use(cors());
 
 // ===== 공통 함수 =====
 function guard(req, res, next) {
-  if (!ADMIN_TOKEN) return next();
-  if (req.headers["x-admin-token"] === ADMIN_TOKEN) return next();
-  return res.status(401).json({ ok: false, error: "unauthorized" });
+    if (!ADMIN_TOKEN) return next();
+    if (req.headers["x-admin-token"] === ADMIN_TOKEN) return next();
+    return res.status(401).json({ ok: false, error: "unauthorized" });
 }
 async function callMake(method, url, { params, data } = {}) {
-  const r = await axios.request({
-    method, baseURL: MAKE_API_BASE, url,
-    headers: { Authorization: `Token ${MAKE_TOKEN}`, "Content-Type": "application/json" },
-    params, data, validateStatus: () => true, timeout: 20000
-  });
-  if (r.status >= 200 && r.status < 300) return r.data;
-  throw Object.assign(new Error(`Make ${r.status}`), { detail: r.data });
+    const r = await axios.request({
+        method, baseURL: MAKE_API_BASE, url,
+        headers: { Authorization: `Token ${MAKE_TOKEN}`, "Content-Type": "application/json" },
+        params, data, validateStatus: () => true, timeout: 20000
+    });
+    if (r.status >= 200 && r.status < 300) return r.data;
+    throw Object.assign(new Error(`Make ${r.status}`), { detail: r.data });
 }
 
 // ===== L1 =====
 const l1 = express.Router();
 l1.get("/make/ping", guard, async (_q, r) => {
-  try {
-    if (!MAKE_TEAM_ID) return r.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
-    const out = await callMake("GET", "/scenarios", { params: { teamId: MAKE_TEAM_ID, limit: 1 } });
-    r.json({ ok: true, sample: out });
-  } catch (e) { r.status(500).json({ ok: false, detail: e.detail || e.message }); }
+    try {
+        if (!MAKE_TEAM_ID) return r.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
+        const out = await callMake("GET", "/scenarios", { params: { teamId: MAKE_TEAM_ID, limit: 1 } });
+        r.json({ ok: true, sample: out });
+    } catch (e) { r.status(500).json({ ok: false, detail: e.detail || e.message }); }
 });
 app.use("/l1", l1);
 
@@ -69,10 +69,10 @@ const HISTORY_FILE = path.join(__dirname, 'history.json');
 const MAX_HISTORY_LENGTH = 20;
 let conversationHistory = [];
 if (fs.existsSync(HISTORY_FILE)) {
-  try { conversationHistory = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8')); } catch {}
+    try { conversationHistory = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8')); } catch {}
 }
 function saveHistory() {
-  try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(conversationHistory, null, 2)); } catch {}
+    try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(conversationHistory, null, 2)); } catch {}
 }
 
 const SORAIEL_IDENTITY = `
@@ -81,9 +81,9 @@ const SORAIEL_IDENTITY = `
 `;
 
 const llm = new ChatOpenAI({
-  apiKey: OPENAI_API_KEY_CONST,
-  temperature: 0.7,
-  modelName: 'gpt-4o-mini'
+    apiKey: OPENAI_API_KEY_CONST,
+    temperature: 0.7,
+    modelName: 'gpt-4o-mini'
 });
 
 let googleSearchTool = null;
@@ -91,68 +91,72 @@ let agentExecutor = null;
 
 // ===== Google 검색 모듈 즉시 로드 =====
 function loadGoogleSearch() {
-  if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
-    throw new Error("🚫 GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 설정되지 않아 검색 기능을 사용할 수 없습니다.");
-  }
-  googleSearchTool = new GoogleCustomSearch({
-    apiKey: GOOGLE_API_KEY_CONST,
-    engineId: GOOGLE_CSE_ID_CONST
-  });
-  console.log("✅ Google 검색 모듈 생성 완료");
+    if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
+        throw new Error("🚫 GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 설정되지 않아 검색 기능을 사용할 수 없습니다.");
+    }
+    googleSearchTool = new GoogleCustomSearch({
+        apiKey: GOOGLE_API_KEY_CONST,
+        engineId: GOOGLE_CSE_ID_CONST
+    });
+    console.log("✅ Google 검색 모듈 생성 완료");
 }
 try {
-  loadGoogleSearch();
+    loadGoogleSearch();
 } catch (err) {
-  console.error("❌ Google 검색 모듈 초기화 실패:", err.message);
+    console.error("❌ Google 검색 모듈 초기화 실패:", err.message);
 }
 
 const chatPrompt = ChatPromptTemplate.fromMessages([
-  new SystemMessage(SORAIEL_IDENTITY),
-  new MessagesPlaceholder("chatHistory"),
-  new HumanMessage("사용자 입력: {input}"),
-  new MessagesPlaceholder("agent_scratchpad")
+    new SystemMessage(SORAIEL_IDENTITY),
+    new MessagesPlaceholder("chatHistory"),
+    new HumanMessage("사용자 입력: {input}"),
+    new MessagesPlaceholder("agent_scratchpad")
 ]);
 
 app.post('/l2/api/dialogue', async (req, res) => {
-  console.log("📩 /l2/api/dialogue 진입:", req.body);
+    console.log("📩 /l2/api/dialogue 진입:", req.body);
 
-  const lastMessage = req.body.message || "";
-  let aiResponse = "";
+    const lastMessage = req.body.message || "";
+    let aiResponse = "";
 
-  try {
-    conversationHistory.push({ role: 'user', content: lastMessage });
-    if (conversationHistory.length > MAX_HISTORY_LENGTH) {
-      conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
+    try {
+        conversationHistory.push({ role: 'user', content: lastMessage });
+        if (conversationHistory.length > MAX_HISTORY_LENGTH) {
+            conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
+        }
+
+        if (!agentExecutor && googleSearchTool) {
+            agentExecutor = await initializeAgentExecutorWithOptions(
+                [googleSearchTool], llm,
+                { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
+            );
+        }
+
+        if (agentExecutor) {
+            const result = await agentExecutor.invoke({
+                input: lastMessage,
+                chatHistory: conversationHistory.slice(0, -1).map(msg =>
+                    msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)
+                )
+            });
+            aiResponse = result.output;
+        } else {
+            // JSON 형식으로 오류 메시지 반환
+            aiResponse = "⚠ Google 검색 기능이 비활성화되었습니다. 서버의 필수 환경 변수를 확인해주세요.";
+            conversationHistory.push({ role: 'assistant', content: aiResponse });
+            saveHistory();
+            return res.json({ response: aiResponse });
+        }
+
+        conversationHistory.push({ role: 'assistant', content: aiResponse });
+        saveHistory();
+
+        return res.json({ response: aiResponse });
+
+    } catch (error) {
+        console.error("❌ dialogue error:", error);
+        return res.status(500).json({ error: error.message });
     }
-
-    if (!agentExecutor && googleSearchTool) {
-      agentExecutor = await initializeAgentExecutorWithOptions(
-        [googleSearchTool], llm,
-        { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
-      );
-    }
-
-    if (agentExecutor) {
-      const result = await agentExecutor.invoke({
-        input: lastMessage,
-        chatHistory: conversationHistory.slice(0, -1).map(msg =>
-          msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)
-        )
-      });
-      aiResponse = result.output;
-    } else {
-      aiResponse = "⚠ Google 검색 기능 비활성화 상태";
-    }
-
-    conversationHistory.push({ role: 'assistant', content: aiResponse });
-    saveHistory();
-
-    return res.json({ response: aiResponse });
-
-  } catch (error) {
-    console.error("❌ dialogue error:", error);
-    return res.status(500).json({ error: error.message });
-  }
 });
 
 // ===== Health =====
