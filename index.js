@@ -1,27 +1,24 @@
-// index.js — Render 메인 서버 (L1 + L2 + UI 통합, Render 환경변수 기반)
-
 const express = require("express");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
 
-// ===== ENV (Render Dashboard에서 세팅)
+// ===== ENV
 const PORT = process.env.PORT || 8080;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // Render 환경변수 값 사용
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const MAKE_API_BASE = process.env.MAKE_API_BASE || "https://us2.make.com/api/v2";
 const MAKE_TOKEN = process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "";
 const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID || "";
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY || "").trim();
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || "").trim();
 const GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || "").trim();
 
-// ===== App init
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ===== L1: Make API 실행기 + /make/create
+// ===== L1: Make API
 function guard(req, res, next) {
   if (!ADMIN_TOKEN) return next();
   if (req.headers["x-admin-token"] === ADMIN_TOKEN) return next();
@@ -50,7 +47,7 @@ l1.get("/make/ping", guard, async (_q, r) => {
 });
 l1.post("/make/run", guard, async (q, r) => {
   try {
-    const id = q.body?.scenarioId || process.env.MAKE_SCENARIO_ID;
+    const id = q.body?.scenarioId;
     if (!id) return r.status(400).json({ ok: false, error: "need scenarioId" });
     const out = await callMake("POST", `/scenarios/${id}/run`);
     r.json({ ok: true, mode: "token", result: out });
@@ -71,7 +68,7 @@ l1.post("/make/create", guard, async (req, res) => {
 });
 app.use("/l1", l1);
 
-// ===== L2: 대화 + Google 검색
+// ===== L2: Chat + Google Search
 const { ChatOpenAI } = require('@langchain/openai');
 const { initializeAgentExecutorWithOptions } = require('langchain/agents');
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
