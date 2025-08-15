@@ -22,7 +22,7 @@ const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || "").trim();
 const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || "").trim();
 const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
 
-// ===== 부팅 시 환경변수 출력 =====
+// ===== 부팅 시 환경변수 확인 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
 console.log({
   PORT, ADMIN_TOKEN, MAKE_API_BASE,
@@ -91,7 +91,7 @@ const llm = new ChatOpenAI({
 let googleSearchTool = null;
 let agentExecutor = null;
 
-// ===== Google 검색 모듈 보장 =====
+// ===== Google 검색 모듈 =====
 function ensureGoogleSearch() {
   if (!googleSearchTool) {
     if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
