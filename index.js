@@ -4,21 +4,24 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
-process.env.OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
-process.env.GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || '').trim();
-process.env.GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || '').trim();
+// ===== 필수 환경변수 전역 상수화 =====
+const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
+const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || '').trim();
+const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || '').trim();
 
+// ===== 환경변수 체크 =====
 console.log('--- Environment Variables Check ---');
-console.log('OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'Loaded' : 'Not Loaded');
-console.log('GOOGLE_API_KEY:', process.env.GOOGLE_API_KEY ? 'Loaded' : 'Not Loaded');
-console.log('GOOGLE_CSE_ID:', process.env.GOOGLE_CSE_ID ? 'Loaded' : 'Not Loaded');
+console.log('OPENAI_API_KEY:', OPENAI_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
+console.log('GOOGLE_API_KEY:', GOOGLE_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
+console.log('GOOGLE_CSE_ID:', GOOGLE_CSE_ID_CONST ? 'Loaded' : 'Not Loaded');
 console.log('-----------------------------------');
 
-if (!process.env.OPENAI_API_KEY || !process.env.GOOGLE_API_KEY || !process.env.GOOGLE_CSE_ID) {
+if (!OPENAI_API_KEY_CONST || !GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
     console.error('❌ 필수 환경변수가 설정되지 않았습니다.');
     process.exit(1);
 }
 
+// ===== LangChain / Google Search =====
 const { ChatOpenAI } = require('@langchain/openai');
 const { initializeAgentExecutorWithOptions } = require('langchain/agents');
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
@@ -29,12 +32,14 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// ===== 정적 파일 서빙 =====
 app.use(express.static('public'));
 
+// ===== 대화 기록 관리 =====
 const HISTORY_FILE = path.join(__dirname, 'history.json');
-const MAX_HISTORY_LENGTH = 20; // 최대 대화 기록 수
-
+const MAX_HISTORY_LENGTH = 20;
 let conversationHistory = [];
+
 if (fs.existsSync(HISTORY_FILE)) {
     try {
         const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
@@ -53,6 +58,7 @@ function saveHistory() {
     }
 }
 
+// ===== 소라엘 기본 설정 =====
 const SORAIEL_IDENTITY = `
 당신은 "소라엘"이라는 이름의 AI 비서입니다.
 모든 대화는 한국어로 하며, 따뜻하고 창의적인 어조를 유지합니다.
@@ -61,18 +67,18 @@ const SORAIEL_IDENTITY = `
 `;
 
 const llm = new ChatOpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: OPENAI_API_KEY_CONST,
     temperature: 0.7,
     modelName: 'gpt-4o-mini'
 });
 
-// ✅ GoogleCustomSearch 생성 전 환경변수 강제 주입
-// 이 두 줄을 삭제했습니다.
-// process.env.GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || 'YOUR_API_KEY';
-// process.env.GOOGLE_CSE_ID = process.env.GOOGLE_CSE_ID || 'YOUR_CSE_ID';
+// ===== Google 검색 모듈 명시 주입 =====
+const googleSearchTool = new GoogleCustomSearch({
+    apiKey: GOOGLE_API_KEY_CONST,
+    engineId: GOOGLE_CSE_ID_CONST
+});
 
-const googleSearchTool = new GoogleCustomSearch();
-
+// ===== Agent Prompt =====
 const chatPrompt = ChatPromptTemplate.fromMessages([
     new SystemMessage(SORAIEL_IDENTITY),
     new MessagesPlaceholder("chatHistory"),
@@ -80,13 +86,14 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
     new MessagesPlaceholder("agent_scratchpad")
 ]);
 
+// ===== AgentExecutor 부팅 시 초기화 =====
 let agentExecutor;
 async function initializeAgent() {
     agentExecutor = await initializeAgentExecutorWithOptions(
         [googleSearchTool],
         llm,
         {
-            agentType: "chat-conversational-react-description", // ✅ 변경
+            agentType: "chat-conversational-react-description",
             verbose: true,
             prompt: chatPrompt
         }
@@ -94,6 +101,7 @@ async function initializeAgent() {
     console.log("✅ 소라엘 Agent executor initialized");
 }
 
+// ===== API =====
 app.get('/api/history', (req, res) => {
     res.json(conversationHistory);
 });
@@ -130,6 +138,12 @@ app.post('/api/dialogue', async (req, res) => {
     }
 });
 
+// ===== Health Check =====
+app.get('/health', (req, res) => {
+    res.json({ ok: true, ts: new Date().toISOString() });
+});
+
+// ===== 서버 시작 =====
 const PORT = process.env.PORT || 3000;
 async function startServer() {
     await initializeAgent();
