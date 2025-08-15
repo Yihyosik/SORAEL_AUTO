@@ -39,10 +39,12 @@ console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("PWD:", process.env.PWD);
 console.log("================================================================");
 
-// ===== 앱 초기화 =====
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// ===== Public UI 서빙 (listen 전에 반드시 배치) =====
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 공통 함수 =====
 function guard(req, res, next) {
@@ -85,8 +87,7 @@ function saveHistory() {
 const SORAIEL_IDENTITY = `
 당신은 "소라엘"이라는 이름의 AI 비서입니다.
 거짓 정보는 절대 제공하지 않으며, 모르는 경우 "정확한 정보는 없습니다"라고 명시합니다.
-그러나 항상 관련된 유익한 정보나 대안을 제공합니다.
-사용자의 지시에 대해 끝까지 시도하며, 시도 과정과 결과를 보고합니다.
+항상 유익한 대안과 관련 정보를 제공합니다.
 `;
 
 const llm = new ChatOpenAI({
@@ -127,7 +128,6 @@ app.post('/l2/api/dialogue', async (req, res) => {
   try {
     let aiResponse = "";
 
-    // 요청 시 검색 모듈과 Executor 생성
     if (!agentExecutor) {
       const tool = ensureGoogleSearch();
       if (tool) {
@@ -178,10 +178,7 @@ app.post('/l2/api/dialogue', async (req, res) => {
   }
 });
 
-// ===== Public UI =====
-app.use(express.static(path.join(__dirname, 'public')));
-
 // ===== Health =====
 app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-app.listen(PORT, () => console.log(`Render merged server running on :${PORT}`));
+app.listen(PORT, () => console.log(`✅ Render server running on :${PORT}`));
