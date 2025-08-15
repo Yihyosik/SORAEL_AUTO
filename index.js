@@ -4,12 +4,14 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
-// ===== 환경변수 상수화 =====
+// ===== 환경변수 상수화 & 강제 주입 =====
 const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
 const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || '').trim();
 const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || '').trim();
 
-// ===== 환경변수 체크 =====
+process.env.GOOGLE_API_KEY = GOOGLE_API_KEY_CONST; // ✅ 강제 주입
+process.env.GOOGLE_CSE_ID = GOOGLE_CSE_ID_CONST;   // ✅ 강제 주입
+
 console.log('=== 🚀 Render 환경변수 디버그 출력 ===');
 console.log('OPENAI_API_KEY:', OPENAI_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
 console.log('GOOGLE_API_KEY:', GOOGLE_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
@@ -23,6 +25,7 @@ if (!OPENAI_API_KEY_CONST || !GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
 
 const { ChatOpenAI } = require('@langchain/openai');
 const { initializeAgentExecutorWithOptions } = require('langchain/agents');
+// ✅ 환경변수 강제 주입 후 require
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage, HumanMessage, AIMessage } = require('@langchain/core/messages');
@@ -41,8 +44,7 @@ let conversationHistory = [];
 
 if (fs.existsSync(HISTORY_FILE)) {
     try {
-        const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
-        conversationHistory = JSON.parse(data);
+        conversationHistory = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
         console.log(`💾 기존 대화 기록 ${conversationHistory.length}개 불러옴`);
     } catch (err) {
         console.error('❌ 대화 기록 로드 실패:', err);
@@ -71,13 +73,9 @@ const llm = new ChatOpenAI({
     modelName: 'gpt-4o-mini'
 });
 
-// ✅ Google 검색 모듈에 환경변수 상수 명시 주입
-const googleSearchTool = new GoogleCustomSearch({
-    apiKey: GOOGLE_API_KEY_CONST,
-    engineId: GOOGLE_CSE_ID_CONST
-});
+// ✅ 검색 모듈 생성 (환경변수 강제 주입 상태)
+const googleSearchTool = new GoogleCustomSearch();
 
-// ===== Agent Prompt =====
 const chatPrompt = ChatPromptTemplate.fromMessages([
     new SystemMessage(SORAIEL_IDENTITY),
     new MessagesPlaceholder("chatHistory"),
@@ -85,29 +83,21 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
     new MessagesPlaceholder("agent_scratchpad")
 ]);
 
-// ===== AgentExecutor 초기화 =====
 let agentExecutor;
 async function initializeAgent() {
     agentExecutor = await initializeAgentExecutorWithOptions(
         [googleSearchTool],
         llm,
-        {
-            agentType: "chat-conversational-react-description",
-            verbose: true,
-            prompt: chatPrompt
-        }
+        { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
     );
     console.log("✅ 소라엘 Agent executor initialized");
 }
 
 // ===== API =====
-app.get('/l2/api/history', (req, res) => {
-    res.json(conversationHistory);
-});
+app.get('/l2/api/history', (req, res) => res.json(conversationHistory));
 
 app.post('/l2/api/dialogue', async (req, res) => {
     const lastMessage = req.body.message;
-
     conversationHistory.push({ role: 'user', content: lastMessage });
     if (conversationHistory.length > MAX_HISTORY_LENGTH) {
         conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
@@ -116,19 +106,13 @@ app.post('/l2/api/dialogue', async (req, res) => {
     try {
         const result = await agentExecutor.invoke({
             input: lastMessage,
-            chatHistory: conversationHistory.slice(0, -1).map(msg => {
-                if (msg.role === 'user') return new HumanMessage(msg.content);
-                if (msg.role === 'assistant') return new AIMessage(msg.content);
-            })
+            chatHistory: conversationHistory.slice(0, -1).map(msg =>
+                msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)
+            )
         });
-
         const aiResponse = result.output;
         conversationHistory.push({ role: 'assistant', content: aiResponse });
-        if (conversationHistory.length > MAX_HISTORY_LENGTH) {
-            conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
-        }
         saveHistory();
-
         res.json({ response: aiResponse });
     } catch (error) {
         console.error('❌ dialogue error:', error);
@@ -136,15 +120,10 @@ app.post('/l2/api/dialogue', async (req, res) => {
     }
 });
 
-// ===== Health Check =====
-app.get('/health', (req, res) => {
-    res.json({ ok: true, ts: new Date().toISOString() });
-});
+app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-// ===== 서버 시작 =====
 const PORT = process.env.PORT || 3000;
-async function startServer() {
+(async () => {
     await initializeAgent();
     app.listen(PORT, () => console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다.`));
-}
-startServer();
+})();
