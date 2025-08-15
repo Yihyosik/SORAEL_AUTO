@@ -95,16 +95,19 @@ const llm = new ChatOpenAI({
   modelName: 'gpt-4o-mini'
 });
 
-// ===== Google 검색 안전 초기화 =====
+// ===== Google 검색 지연 초기화 =====
 let googleSearchTool = null;
-if (GOOGLE_API_KEY && GOOGLE_CSE_ID) {
-  googleSearchTool = new GoogleCustomSearch({
-    apiKey: GOOGLE_API_KEY,
-    engineId: GOOGLE_CSE_ID
-  });
-  console.log("✅ Google 검색 활성화됨");
-} else {
-  console.warn("⚠ GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 없어 검색 비활성화됨");
+let agentExecutor = null;
+
+function ensureGoogleSearch() {
+  if (!googleSearchTool && GOOGLE_API_KEY && GOOGLE_CSE_ID) {
+    googleSearchTool = new GoogleCustomSearch({
+      apiKey: GOOGLE_API_KEY,
+      engineId: GOOGLE_CSE_ID
+    });
+    console.log("✅ Google 검색 모듈 생성 완료");
+  }
+  return googleSearchTool;
 }
 
 const chatPrompt = ChatPromptTemplate.fromMessages([
@@ -113,17 +116,6 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
   new HumanMessage("사용자 입력: {input}"),
   new MessagesPlaceholder("agent_scratchpad")
 ]);
-
-let agentExecutor = null;
-(async () => {
-  if (googleSearchTool) {
-    agentExecutor = await initializeAgentExecutorWithOptions(
-      [googleSearchTool],
-      llm,
-      { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
-    );
-  }
-})();
 
 app.post('/l2/api/dialogue', async (req, res) => {
   const lastMessage = req.body.message;
@@ -134,6 +126,18 @@ app.post('/l2/api/dialogue', async (req, res) => {
 
   try {
     let aiResponse = "";
+
+    // 요청 시 검색 모듈과 Executor 생성
+    if (!agentExecutor) {
+      const tool = ensureGoogleSearch();
+      if (tool) {
+        agentExecutor = await initializeAgentExecutorWithOptions(
+          [tool],
+          llm,
+          { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
+        );
+      }
+    }
 
     if (/(포스팅|글 작성|콘텐츠|블로그)/.test(lastMessage)) {
       const post = await llm.invoke([
