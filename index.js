@@ -10,29 +10,28 @@ const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage, HumanMessage, AIMessage } = require('@langchain/core/messages');
 
-// ===== 환경변수 =====
+// ===== 환경변수 전역 상수화 =====
 const PORT = process.env.PORT || 8080;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
-const MAKE_API_BASE = process.env.MAKE_API_BASE || "https://us2.make.com/api/v2";
-const MAKE_TOKEN = process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "";
-const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID || "";
-const MAKE_SCENARIO_ID = process.env.MAKE_SCENARIO_ID || "";
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
-const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || "").trim();
-const GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || "").trim();
+const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
+const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").trim();
+const MAKE_TOKEN = (process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "").trim();
+const MAKE_TEAM_ID = (process.env.MAKE_TEAM_ID || "").trim();
+const MAKE_SCENARIO_ID = (process.env.MAKE_SCENARIO_ID || "").trim();
+const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || "").trim();
+const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || "").trim();
+const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || "").trim();
 const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
-const TEST_MODE = process.env.TEST_MODE === "true";
 
-// ===== 디버그 출력 =====
+// ===== 부팅 시 환경변수 출력 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
 console.log({
   PORT, ADMIN_TOKEN, MAKE_API_BASE,
   MAKE_TOKEN, MAKE_API_KEY: process.env.MAKE_API_KEY,
   MAKE_TEAM_ID, MAKE_SCENARIO_ID,
-  OPENAI_API_KEY: OPENAI_API_KEY ? "[설정됨]" : "[없음]",
-  GOOGLE_API_KEY: GOOGLE_API_KEY ? "[설정됨]" : "[없음]",
-  GOOGLE_CSE_ID, SCENARIO_WEBHOOK_URL,
-  TEST_MODE, NODE_ENV: process.env.NODE_ENV, PWD: process.env.PWD
+  OPENAI_API_KEY: OPENAI_API_KEY_CONST ? "[설정됨]" : "[없음]",
+  GOOGLE_API_KEY: GOOGLE_API_KEY_CONST ? "[설정됨]" : "[없음]",
+  GOOGLE_CSE_ID: GOOGLE_CSE_ID_CONST ? "[설정됨]" : "[없음]",
+  SCENARIO_WEBHOOK_URL, NODE_ENV: process.env.NODE_ENV
 });
 console.log("================================================================");
 
@@ -67,7 +66,7 @@ l1.get("/make/ping", guard, async (_q, r) => {
 });
 app.use("/l1", l1);
 
-// ===== L2 =====
+// ===== L2: 대화 처리 =====
 const HISTORY_FILE = path.join(__dirname, 'history.json');
 const MAX_HISTORY_LENGTH = 20;
 let conversationHistory = [];
@@ -84,7 +83,7 @@ const SORAIEL_IDENTITY = `
 `;
 
 const llm = new ChatOpenAI({
-  apiKey: OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY_CONST,
   temperature: 0.7,
   modelName: 'gpt-4o-mini'
 });
@@ -92,11 +91,15 @@ const llm = new ChatOpenAI({
 let googleSearchTool = null;
 let agentExecutor = null;
 
+// ===== Google 검색 모듈 보장 =====
 function ensureGoogleSearch() {
-  if (!googleSearchTool && GOOGLE_API_KEY && GOOGLE_CSE_ID) {
+  if (!googleSearchTool) {
+    if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
+      throw new Error("🚫 GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 설정되지 않아 검색 기능을 사용할 수 없습니다.");
+    }
     googleSearchTool = new GoogleCustomSearch({
-      apiKey: GOOGLE_API_KEY,
-      engineId: GOOGLE_CSE_ID
+      apiKey: GOOGLE_API_KEY_CONST,
+      engineId: GOOGLE_CSE_ID_CONST
     });
     console.log("✅ Google 검색 모듈 생성 완료");
   }
@@ -110,7 +113,6 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
   new MessagesPlaceholder("agent_scratchpad")
 ]);
 
-// ===== 핵심: 응답 문제 해결 =====
 app.post('/l2/api/dialogue', async (req, res) => {
   console.log("📩 /l2/api/dialogue 진입:", req.body);
 
@@ -118,23 +120,24 @@ app.post('/l2/api/dialogue', async (req, res) => {
   let aiResponse = "";
 
   try {
-    if (TEST_MODE) {
-      console.log("🧪 TEST_MODE 활성화 — AI 호출 생략");
-      return res.json({ response: `pong: ${lastMessage}` });
-    }
-
     conversationHistory.push({ role: 'user', content: lastMessage });
     if (conversationHistory.length > MAX_HISTORY_LENGTH) {
       conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
     }
 
     if (!agentExecutor) {
-      const tool = ensureGoogleSearch();
-      if (tool) {
+      try {
+        const tool = ensureGoogleSearch();
         agentExecutor = await initializeAgentExecutorWithOptions(
           [tool], llm,
           { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
         );
+      } catch (initErr) {
+        console.error("❌ Google 검색 초기화 실패:", initErr.message);
+        aiResponse = `⚠ Google 검색 초기화 실패: ${initErr.message}`;
+        conversationHistory.push({ role: 'assistant', content: aiResponse });
+        saveHistory();
+        return res.json({ response: aiResponse });
       }
     }
 
