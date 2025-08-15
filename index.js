@@ -71,7 +71,7 @@ const llm = new ChatOpenAI({
     modelName: 'gpt-4o-mini'
 });
 
-// ✅ Google 검색 모듈 명시 주입
+// ✅ Google 검색 모듈에 환경변수 상수 명시 주입
 const googleSearchTool = new GoogleCustomSearch({
     apiKey: GOOGLE_API_KEY_CONST,
     engineId: GOOGLE_CSE_ID_CONST
