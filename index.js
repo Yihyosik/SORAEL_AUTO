@@ -5,6 +5,8 @@ const express = require('express');
 const cors = require('cors');
 
 // ===== 필수 환경변수 전역 상수화 =====
+// 이 상수화 부분이 유효한지 확인했으므로,
+// 이제 LangChain 생성자에서 직접 process.env를 사용합니다.
 const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
 const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || '').trim();
 const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || '').trim();
@@ -73,9 +75,10 @@ const llm = new ChatOpenAI({
 });
 
 // ===== Google 검색 모듈 명시 주입 =====
+// 직접 process.env를 사용하도록 수정했습니다.
 const googleSearchTool = new GoogleCustomSearch({
-    apiKey: GOOGLE_API_KEY_CONST,
-    engineId: GOOGLE_CSE_ID_CONST
+    apiKey: process.env.GOOGLE_API_KEY,
+    engineId: process.env.GOOGLE_CSE_ID
 });
 
 // ===== Agent Prompt =====
