@@ -10,7 +10,7 @@ const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage, HumanMessage, AIMessage } = require('@langchain/core/messages');
 
-// ===== 환경변수 읽기 =====
+// ===== 환경변수 =====
 const PORT = process.env.PORT || 8080;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const MAKE_API_BASE = process.env.MAKE_API_BASE || "https://us2.make.com/api/v2";
@@ -24,18 +24,20 @@ const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
 
 // ===== 디버그 출력 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
-console.log({ PORT, ADMIN_TOKEN, MAKE_API_BASE, MAKE_TOKEN, MAKE_API_KEY: process.env.MAKE_API_KEY,
-  MAKE_TEAM_ID, MAKE_SCENARIO_ID, OPENAI_API_KEY: OPENAI_API_KEY ? "[설정됨]" : "[없음]",
-  GOOGLE_API_KEY: GOOGLE_API_KEY ? "[설정됨]" : "[없음]", GOOGLE_CSE_ID, SCENARIO_WEBHOOK_URL,
-  NODE_ENV: process.env.NODE_ENV, PWD: process.env.PWD });
+console.log({
+  PORT, ADMIN_TOKEN, MAKE_API_BASE,
+  MAKE_TOKEN, MAKE_API_KEY: process.env.MAKE_API_KEY,
+  MAKE_TEAM_ID, MAKE_SCENARIO_ID,
+  OPENAI_API_KEY: OPENAI_API_KEY ? "[설정됨]" : "[없음]",
+  GOOGLE_API_KEY: GOOGLE_API_KEY ? "[설정됨]" : "[없음]",
+  GOOGLE_CSE_ID, SCENARIO_WEBHOOK_URL,
+  NODE_ENV: process.env.NODE_ENV, PWD: process.env.PWD
+});
 console.log("================================================================");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
-
-// ===== Public UI 서빙 =====
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 공통 함수 =====
 function guard(req, res, next) {
@@ -151,5 +153,8 @@ app.post('/l2/api/dialogue', async (req, res) => {
 
 // ===== Health =====
 app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+// ===== 마지막에 정적 파일 서빙 =====
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => console.log(`✅ Server running on :${PORT}`));
