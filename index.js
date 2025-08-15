@@ -25,14 +25,12 @@ const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
 // ===== 부팅 시 환경변수 확인 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
 console.log({
-  PORT, ADMIN_TOKEN, MAKE_API_BASE,
-  MAKE_TOKEN, MAKE_API_KEY: process.env.MAKE_API_KEY,
-  MAKE_TEAM_ID, MAKE_SCENARIO_ID,
-  OPENAI_API_KEY: OPENAI_API_KEY_CONST ? "[설정됨]" : "[없음]",
-  GOOGLE_API_KEY: GOOGLE_API_KEY_CONST ? "[설정됨]" : "[없음]",
-  GOOGLE_CSE_ID: GOOGLE_CSE_ID_CONST ? "[설정됨]" : "[없음]",
-  SCENARIO_WEBHOOK_URL, NODE_ENV: process.env.NODE_ENV
+  GOOGLE_API_KEY_CONST,
+  GOOGLE_CSE_ID_CONST
 });
+if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
+  console.error("🚫 필수 환경변수 누락: GOOGLE_API_KEY, GOOGLE_CSE_ID를 확인하세요.");
+}
 console.log("================================================================");
 
 const app = express();
@@ -91,19 +89,21 @@ const llm = new ChatOpenAI({
 let googleSearchTool = null;
 let agentExecutor = null;
 
-// ===== Google 검색 모듈 =====
-function ensureGoogleSearch() {
-  if (!googleSearchTool) {
-    if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
-      throw new Error("🚫 GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 설정되지 않아 검색 기능을 사용할 수 없습니다.");
-    }
-    googleSearchTool = new GoogleCustomSearch({
-      apiKey: GOOGLE_API_KEY_CONST,
-      engineId: GOOGLE_CSE_ID_CONST
-    });
-    console.log("✅ Google 검색 모듈 생성 완료");
+// ===== Google 검색 모듈 즉시 로드 =====
+function loadGoogleSearch() {
+  if (!GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
+    throw new Error("🚫 GOOGLE_API_KEY 또는 GOOGLE_CSE_ID가 설정되지 않아 검색 기능을 사용할 수 없습니다.");
   }
-  return googleSearchTool;
+  googleSearchTool = new GoogleCustomSearch({
+    apiKey: GOOGLE_API_KEY_CONST,
+    engineId: GOOGLE_CSE_ID_CONST
+  });
+  console.log("✅ Google 검색 모듈 생성 완료");
+}
+try {
+  loadGoogleSearch();
+} catch (err) {
+  console.error("❌ Google 검색 모듈 초기화 실패:", err.message);
 }
 
 const chatPrompt = ChatPromptTemplate.fromMessages([
@@ -125,20 +125,11 @@ app.post('/l2/api/dialogue', async (req, res) => {
       conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
     }
 
-    if (!agentExecutor) {
-      try {
-        const tool = ensureGoogleSearch();
-        agentExecutor = await initializeAgentExecutorWithOptions(
-          [tool], llm,
-          { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
-        );
-      } catch (initErr) {
-        console.error("❌ Google 검색 초기화 실패:", initErr.message);
-        aiResponse = `⚠ Google 검색 초기화 실패: ${initErr.message}`;
-        conversationHistory.push({ role: 'assistant', content: aiResponse });
-        saveHistory();
-        return res.json({ response: aiResponse });
-      }
+    if (!agentExecutor && googleSearchTool) {
+      agentExecutor = await initializeAgentExecutorWithOptions(
+        [googleSearchTool], llm,
+        { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt }
+      );
     }
 
     if (agentExecutor) {
