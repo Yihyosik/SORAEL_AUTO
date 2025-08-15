@@ -1,193 +1,61 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>소라엘 채팅</title>
-<style>
-:root {
-  --user-bg: #0b93f6;
-  --user-text: white;
-  --ai-bg: rgba(255, 255, 255, 0.6);
-  --ai-text: #222;
-  --bg-light: linear-gradient(135deg, #f5f7fa, #c3cfe2);
-  --bg-dark: linear-gradient(135deg, #1c1c1e, #3a3a3c);
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ai-bg: rgba(44, 44, 46, 0.7);
-    --ai-text: white;
-  }
-}
-html, body {
-  margin: 0;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg-light);
-  transition: background 0.5s ease;
-}
-@media (prefers-color-scheme: dark) {
-  html, body { background: var(--bg-dark); }
-}
-#chat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  overflow-y: auto;
-  gap: 14px;
-  box-sizing: border-box;
-  height: calc(100vh - 60px - env(safe-area-inset-bottom));
-}
-.msg {
-  max-width: 75%;
-  padding: 12px 16px;
-  border-radius: 20px;
-  line-height: 1.4;
-  font-size: 16px;
-  word-break: break-word;
-  animation: fadeSlide 0.35s ease-out;
-  backdrop-filter: blur(10px);
-}
-.user {
-  align-self: flex-end;
-  background: var(--user-bg);
-  color: var(--user-text);
-  border-bottom-right-radius: 6px;
-}
-.ai {
-  align-self: flex-start;
-  background: var(--ai-bg);
-  color: var(--ai-text);
-  border-bottom-left-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-@keyframes fadeSlide {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.typing {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.dot {
-  width: 6px;
-  height: 6px;
-  background: var(--ai-text);
-  border-radius: 50%;
-  animation: bounce 1.4s infinite;
-}
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes bounce {
-  0%, 80%, 100% { transform: scale(0.8); opacity: 0.3; }
-  40% { transform: scale(1); opacity: 1; }
-}
-#input-area {
-  display: flex;
-  align-items: center;
-  padding: 10px;
-  background: transparent;
-  border-top: 1px solid rgba(0,0,0,0.1);
-  box-sizing: border-box;
-}
-#input {
-  flex: 1;
-  padding: 12px 16px;
-  border-radius: 20px;
-  border: none;
-  font-size: 16px;
-  outline: none;
-  background: white;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-@media (prefers-color-scheme: dark) {
-  #input { background: #2c2c2e; color: white; }
-}
-#send {
-  margin-left: 8px;
-  background: var(--user-bg);
-  color: white;
-  border: none;
-  padding: 0 18px;
-  height: 40px;
-  border-radius: 20px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.2s ease;
-}
-#send:active { transform: scale(0.96); }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>소라엘 채팅</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+    #messages { flex: 1; padding: 10px; overflow-y: auto; }
+    .msg { margin: 5px 0; padding: 8px; border-radius: 6px; max-width: 80%; }
+    .user { background: #d1e7dd; align-self: flex-end; }
+    .bot { background: #f8d7da; align-self: flex-start; }
+    #input-area { display: flex; padding: 10px; border-top: 1px solid #ccc; }
+    #msg-input { flex: 1; padding: 8px; }
+    button { padding: 8px; }
+  </style>
 </head>
 <body>
-<div id="chat"></div>
-<div id="input-area">
-  <input id="input" type="text" placeholder="메시지를 입력하세요..." />
-  <button id="send">전송</button>
-</div>
-<script>
-const chat = document.getElementById('chat');
-const input = document.getElementById('input');
-const sendBtn = document.getElementById('send');
+  <div id="messages"></div>
+  <div id="input-area">
+    <input id="msg-input" type="text" placeholder="메시지를 입력하세요..." />
+    <button id="send-btn">전송</button>
+  </div>
 
-async function loadHistory() {
-  const res = await fetch('/l2/api/history');
-  const history = await res.json();
-  history.forEach(msg => addMessage(msg.role, msg.content));
-}
+  <script>
+    const messagesDiv = document.getElementById('messages');
+    const input = document.getElementById('msg-input');
+    const sendBtn = document.getElementById('send-btn');
 
-function addMessage(sender, text) {
-  const div = document.createElement('div');
-  div.className = `msg ${sender}`;
-  div.innerHTML = text;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
+    function addMessage(text, cls) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      div.className = 'msg ' + cls;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
 
-// 글자별 타이핑 애니메이션
-async function typeMessage(text) {
-  const div = document.createElement('div');
-  div.className = `msg ai`;
-  chat.appendChild(div);
-  let i = 0;
-  const interval = setInterval(() => {
-    div.innerHTML = text.slice(0, i++);
-    chat.scrollTop = chat.scrollHeight;
-    if (i > text.length) clearInterval(interval);
-  }, 15);
-}
+    async function sendMessage() {
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage(text, 'user');
+      input.value = '';
 
-function showTyping() {
-  const div = document.createElement('div');
-  div.className = 'msg ai typing';
-  div.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
-}
+      try {
+        const res = await fetch('/l2/api/dialogue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        addMessage(data.response || '응답 없음', 'bot');
+      } catch (err) {
+        addMessage('오류 발생: ' + err.message, 'bot');
+      }
+    }
 
-async function sendMessage() {
-  const text = input.value.trim();
-  if (!text) return;
-  addMessage('user', text);
-  input.value = '';
-  const typingDiv = showTyping();
-  const res = await fetch('/l2/api/dialogue', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: text })
-  });
-  const data = await res.json();
-  typingDiv.remove();
-  await typeMessage(data.response);
-}
-
-sendBtn.addEventListener('click', sendMessage);
-input.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
-
-document.addEventListener('DOMContentLoaded', loadHistory);
-</script>
+    sendBtn.onclick = sendMessage;
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+  </script>
 </body>
 </html>
