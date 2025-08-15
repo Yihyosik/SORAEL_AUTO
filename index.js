@@ -4,24 +4,23 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
-// ===== 필수 환경변수 전역 상수로 정의 =====
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
-const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || '').trim();
-const GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || '').trim();
+// ===== 환경변수 상수화 =====
+const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
+const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || '').trim();
+const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || '').trim();
 
 // ===== 환경변수 체크 =====
-console.log('--- Environment Variables Check ---');
-console.log('OPENAI_API_KEY:', OPENAI_API_KEY ? 'Loaded' : 'Not Loaded');
-console.log('GOOGLE_API_KEY:', GOOGLE_API_KEY ? 'Loaded' : 'Not Loaded');
-console.log('GOOGLE_CSE_ID:', GOOGLE_CSE_ID ? 'Loaded' : 'Not Loaded');
-console.log('-----------------------------------');
+console.log('=== 🚀 Render 환경변수 디버그 출력 ===');
+console.log('OPENAI_API_KEY:', OPENAI_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
+console.log('GOOGLE_API_KEY:', GOOGLE_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
+console.log('GOOGLE_CSE_ID:', GOOGLE_CSE_ID_CONST ? 'Loaded' : 'Not Loaded');
+console.log('======================================');
 
-if (!OPENAI_API_KEY || !GOOGLE_API_KEY || !GOOGLE_CSE_ID) {
+if (!OPENAI_API_KEY_CONST || !GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
     console.error('❌ 필수 환경변수가 설정되지 않았습니다.');
     process.exit(1);
 }
 
-// ===== LangChain / Google Search =====
 const { ChatOpenAI } = require('@langchain/openai');
 const { initializeAgentExecutorWithOptions } = require('langchain/agents');
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
@@ -67,15 +66,15 @@ const SORAIEL_IDENTITY = `
 `;
 
 const llm = new ChatOpenAI({
-    apiKey: OPENAI_API_KEY,
+    apiKey: OPENAI_API_KEY_CONST,
     temperature: 0.7,
     modelName: 'gpt-4o-mini'
 });
 
-// ===== Google 검색 모듈 명시 주입 =====
+// ✅ Google 검색 모듈 명시 주입
 const googleSearchTool = new GoogleCustomSearch({
-    apiKey: GOOGLE_API_KEY,
-    engineId: GOOGLE_CSE_ID
+    apiKey: GOOGLE_API_KEY_CONST,
+    engineId: GOOGLE_CSE_ID_CONST
 });
 
 // ===== Agent Prompt =====
@@ -86,7 +85,7 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
     new MessagesPlaceholder("agent_scratchpad")
 ]);
 
-// ===== AgentExecutor 부팅 시 초기화 =====
+// ===== AgentExecutor 초기화 =====
 let agentExecutor;
 async function initializeAgent() {
     agentExecutor = await initializeAgentExecutorWithOptions(
@@ -102,11 +101,11 @@ async function initializeAgent() {
 }
 
 // ===== API =====
-app.get('/api/history', (req, res) => {
+app.get('/l2/api/history', (req, res) => {
     res.json(conversationHistory);
 });
 
-app.post('/api/dialogue', async (req, res) => {
+app.post('/l2/api/dialogue', async (req, res) => {
     const lastMessage = req.body.message;
 
     conversationHistory.push({ role: 'user', content: lastMessage });
@@ -124,7 +123,6 @@ app.post('/api/dialogue', async (req, res) => {
         });
 
         const aiResponse = result.output;
-
         conversationHistory.push({ role: 'assistant', content: aiResponse });
         if (conversationHistory.length > MAX_HISTORY_LENGTH) {
             conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
@@ -133,7 +131,7 @@ app.post('/api/dialogue', async (req, res) => {
 
         res.json({ response: aiResponse });
     } catch (error) {
-        console.error('❌ 오류:', error);
+        console.error('❌ dialogue error:', error);
         res.status(500).json({ error: '서버 처리 중 오류가 발생했습니다.' });
     }
 });
