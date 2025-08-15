@@ -24,26 +24,17 @@ const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
 
 // ===== 디버그 출력 =====
 console.log("=== 🚀 Render 환경변수 디버그 출력 ===");
-console.log("PORT:", PORT);
-console.log("ADMIN_TOKEN:", ADMIN_TOKEN || "[없음]");
-console.log("MAKE_API_BASE:", MAKE_API_BASE);
-console.log("MAKE_TOKEN:", MAKE_TOKEN || "[없음]");
-console.log("MAKE_API_KEY:", process.env.MAKE_API_KEY || "[없음]");
-console.log("MAKE_TEAM_ID:", MAKE_TEAM_ID || "[없음]");
-console.log("MAKE_SCENARIO_ID:", MAKE_SCENARIO_ID || "[없음]");
-console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "[설정됨]" : "[없음]");
-console.log("GOOGLE_API_KEY:", GOOGLE_API_KEY ? "[설정됨]" : "[없음]");
-console.log("GOOGLE_CSE_ID:", GOOGLE_CSE_ID || "[없음]");
-console.log("SCENARIO_WEBHOOK_URL:", SCENARIO_WEBHOOK_URL || "[없음]");
-console.log("NODE_ENV:", process.env.NODE_ENV);
-console.log("PWD:", process.env.PWD);
+console.log({ PORT, ADMIN_TOKEN, MAKE_API_BASE, MAKE_TOKEN, MAKE_API_KEY: process.env.MAKE_API_KEY,
+  MAKE_TEAM_ID, MAKE_SCENARIO_ID, OPENAI_API_KEY: OPENAI_API_KEY ? "[설정됨]" : "[없음]",
+  GOOGLE_API_KEY: GOOGLE_API_KEY ? "[설정됨]" : "[없음]", GOOGLE_CSE_ID, SCENARIO_WEBHOOK_URL,
+  NODE_ENV: process.env.NODE_ENV, PWD: process.env.PWD });
 console.log("================================================================");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ===== Public UI 서빙 (listen 전에 반드시 배치) =====
+// ===== Public UI 서빙 =====
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 공통 함수 =====
@@ -87,7 +78,6 @@ function saveHistory() {
 const SORAIEL_IDENTITY = `
 당신은 "소라엘"이라는 이름의 AI 비서입니다.
 거짓 정보는 절대 제공하지 않으며, 모르는 경우 "정확한 정보는 없습니다"라고 명시합니다.
-항상 유익한 대안과 관련 정보를 제공합니다.
 `;
 
 const llm = new ChatOpenAI({
@@ -96,7 +86,6 @@ const llm = new ChatOpenAI({
   modelName: 'gpt-4o-mini'
 });
 
-// ===== Google 검색 지연 초기화 =====
 let googleSearchTool = null;
 let agentExecutor = null;
 
@@ -139,21 +128,7 @@ app.post('/l2/api/dialogue', async (req, res) => {
       }
     }
 
-    if (/(포스팅|글 작성|콘텐츠|블로그)/.test(lastMessage)) {
-      const post = await llm.invoke([
-        new SystemMessage(SORAIEL_IDENTITY + "\n\n마케팅 콘텐츠 전문가로서 포스팅을 구조적으로 작성하세요."),
-        new HumanMessage(lastMessage)
-      ]);
-      aiResponse = post.content;
-
-      if (/(업로드|게시)/.test(lastMessage) && MAKE_TEAM_ID && MAKE_TOKEN) {
-        const makeRes = await callMake("POST", `/scenarios/${MAKE_SCENARIO_ID}/run`, {
-          params: { teamId: MAKE_TEAM_ID },
-          data: { content: aiResponse }
-        });
-        aiResponse += `\n\n✅ 업로드 완료: ${JSON.stringify(makeRes)}`;
-      }
-    } else if (agentExecutor) {
+    if (agentExecutor) {
       const result = await agentExecutor.invoke({
         input: lastMessage,
         chatHistory: conversationHistory.slice(0, -1).map(msg => {
@@ -167,11 +142,7 @@ app.post('/l2/api/dialogue', async (req, res) => {
     }
 
     conversationHistory.push({ role: 'assistant', content: aiResponse });
-    if (conversationHistory.length > MAX_HISTORY_LENGTH) {
-      conversationHistory.splice(0, conversationHistory.length - MAX_HISTORY_LENGTH);
-    }
     saveHistory();
-
     res.json({ response: aiResponse });
   } catch (error) {
     res.status(500).json({ error: '서버 처리 중 오류', detail: error.message });
@@ -181,4 +152,4 @@ app.post('/l2/api/dialogue', async (req, res) => {
 // ===== Health =====
 app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-app.listen(PORT, () => console.log(`✅ Render server running on :${PORT}`));
+app.listen(PORT, () => console.log(`✅ Server running on :${PORT}`));
