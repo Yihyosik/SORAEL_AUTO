@@ -1,7 +1,8 @@
-// index.js — 오케스트레이션 안정판 (+ Make 연동/보안/팀ID 포함 완전본)
-// - generate_image: url 우선, 없으면 b64→파일 저장, 60s 타임아웃, 2회 재시도, 1024→512 자동 다운스케일
-// - write_blog: 안정 파라미터, JSON 실패 원문 반환
-// - ADMIN_TOKEN 보안, /__whoami, /make/ping, /make/deploy(Off→PUT→On), /make/run(API 실행, teamId 포함)
+// index.js — Orchestrator + Make(Webhook/ OAuth-Bearer / Token) + teamId + Auto Refresh (완전본)
+// - 우선순위: Webhook → OAuth Bearer → Token
+// - /make/run: SCENARIO_WEBHOOK_URL 있으면 웹훅 POST로 실행, 없으면 API(run)
+// - /make/deploy: API 필요(유료/OAuth 권장). Free 플랜은 UI로 관리 권장
+// - /__whoami로 현재 인증 모드/환경 빠르게 점검
 
 const express = require("express");
 const axios = require("axios");
@@ -9,29 +10,43 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-app.use(express.json({ limit: "1mb" })); // 입력 과대 방지
+app.use(express.json({ limit: "1mb" }));
 
-// 정적 파일 폴더(/files)
+// ===== Static files (/files)
 const FILE_DIR = path.join(process.cwd(), "files");
 if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
 app.use("/files", express.static(FILE_DIR, { maxAge: "1d", immutable: true }));
 
-// ==== ENV ====
+// ===== ENV
 const PORT = (process.env.PORT || 8080);
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim(); // (선택) 이미지/블로그 모듈에서 사용
-const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();        // (권장) API 보호용
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
+
+const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
+
+// Make 공통
 const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").trim();
-const MAKE_TOKEN = ((process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "")).trim(); // 호환성
 const MAKE_TEAM_ID = (process.env.MAKE_TEAM_ID || "").trim();
 
-// ==== OpenAI 클라이언트 ====
+// Webhook 우선
+const SCENARIO_WEBHOOK_URL = (process.env.SCENARIO_WEBHOOK_URL || "").trim();
+
+// OAuth Bearer (권장)
+const MAKE_BEARER = (process.env.MAKE_BEARER || "").trim(); // 직접 넣은 액세스 토큰(단기)
+const MAKE_OAUTH_CLIENT_ID = (process.env.MAKE_OAUTH_CLIENT_ID || "").trim();
+const MAKE_OAUTH_CLIENT_SECRET = (process.env.MAKE_OAUTH_CLIENT_SECRET || "").trim();
+const MAKE_OAUTH_REFRESH_TOKEN = (process.env.MAKE_OAUTH_REFRESH_TOKEN || "").trim();
+
+// Token (조직 정책에 따라 금지될 수 있음)
+const MAKE_TOKEN = ((process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "")).trim();
+
+// ===== OpenAI client
 const openai = axios.create({
   baseURL: "https://api.openai.com/v1",
   headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-  timeout: 60000 // 60s
+  timeout: 60000
 });
 
-// ==== 유틸 ====
+// ===== Utils
 const ok = (res, data) => res.json({ ok: true, ...data });
 const err = (res, code, detail) => res.status(code).json({ ok: false, error: "run_failed", detail });
 const id = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -44,15 +59,14 @@ async function withRetry(fn, { tries = 3, baseDelay = 700 } = {}) {
       lastErr = e;
       const status = e?.response?.status;
       const typ = e?.response?.data?.error?.type || e?.code || "";
-      // 정책/인증/모델 파라미터류는 재시도 무의미 → 즉시 중단
       if (status === 401 || status === 403 || (status === 400 && /invalid|model|param/i.test(typ))) throw e;
-      await sleep(baseDelay * Math.pow(2, i)); // 백오프
+      await sleep(baseDelay * Math.pow(2, i));
     }
   }
   throw lastErr;
 }
 
-// 이미지 생성 (gpt-image-1): url → b64→파일 저장, 1024 실패시 512
+// ===== OpenAI helpers
 async function generateImageStable(prompt, sizeWanted, baseUrl) {
   const sizes = [sizeWanted || "1024x1024", "512x512"];
   let lastError;
@@ -65,7 +79,6 @@ async function generateImageStable(prompt, sizeWanted, baseUrl) {
 
       const url = data?.data?.[0]?.url;
       if (url) return url;
-
       const b64 = data?.data?.[0]?.b64_json;
       if (b64) {
         const filename = `${id()}.png`;
@@ -79,7 +92,6 @@ async function generateImageStable(prompt, sizeWanted, baseUrl) {
   throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
 }
 
-// 블로그 글 작성 (gpt-4o-mini)
 async function writeBlogStable(topic, imageUrl) {
   const { data } = await withRetry(() => openai.post("/chat/completions", {
     model: "gpt-4o-mini",
@@ -100,11 +112,17 @@ ${imageUrl ? `- 본문에 아래 이미지 URL 1회 삽입: ${imageUrl}` : ""}
   return text;
 }
 
-// === 공개 라우트: 헬스 ===
+// ===== Public: health
 app.get("/health", (_req, res) => ok(res, { ts: new Date().toISOString() }));
 
-// === 디버그: 현재 빌드/라우트 스냅샷 ===
+// ===== Debug: whoami
 app.get("/__whoami", (_req, res) => {
+  const mode =
+    SCENARIO_WEBHOOK_URL ? "webhook" :
+    (MAKE_BEARER || (MAKE_OAUTH_CLIENT_ID && MAKE_OAUTH_CLIENT_SECRET && MAKE_OAUTH_REFRESH_TOKEN))
+      ? "oauth-bearer"
+      : (MAKE_TOKEN ? "token" : "none");
+
   res.json({
     ok: true,
     tag: "whoami",
@@ -113,89 +131,150 @@ app.get("/__whoami", (_req, res) => {
       has_OPENAI_API_KEY: !!OPENAI_API_KEY,
       has_ADMIN_TOKEN: !!ADMIN_TOKEN,
       MAKE_API_BASE,
-      has_MAKE_TOKEN: !!MAKE_TOKEN,
-      MAKE_TEAM_ID
+      MAKE_TEAM_ID,
+      mode,
+      has_WEBHOOK: !!SCENARIO_WEBHOOK_URL
     },
     routes: ["/health", "/__whoami", "/files/*", "/housekeep", "/run", "/make/ping", "/make/deploy", "/make/run"]
   });
 });
 
-// === Admin Token 보호 (헬스/디버그 제외 전부 보호 권장) ===
+// ===== Admin-token protection (except health/whoami)
 app.use((req, res, next) => {
   if (req.path === "/health" || req.path === "/__whoami") return next();
-  if (!ADMIN_TOKEN) return next(); // 토큰 미설정 시 보호 비활성
+  if (!ADMIN_TOKEN) return next();
   const got = req.headers["x-admin-token"];
   if (got === ADMIN_TOKEN) return next();
   return res.status(401).json({ ok: false, error: "unauthorized" });
 });
 
-// === Make API 클라이언트 ===
-const make = axios.create({
-  baseURL: MAKE_API_BASE,
-  headers: { Authorization: `Token ${MAKE_TOKEN}`, "Content-Type": "application/json" },
-  timeout: 15000
-});
+// ===== OAuth Bearer manager
+const OAUTH = {
+  cached: { token: MAKE_BEARER || "", exp: 0 },
+  async getAccessToken() {
+    if (SCENARIO_WEBHOOK_URL) return ""; // 웹훅 모드면 Bearer 불필요
+    if (MAKE_BEARER) return MAKE_BEARER;
 
-// === Make 라우트 ===
-// 연결 확인 (teamId 필수)
+    if (MAKE_OAUTH_CLIENT_ID && MAKE_OAUTH_CLIENT_SECRET && MAKE_OAUTH_REFRESH_TOKEN) {
+      const now = Math.floor(Date.now() / 1000);
+      if (OAUTH.cached.token && OAUTH.cached.exp > now + 30) return OAUTH.cached.token;
+
+      const params = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: MAKE_OAUTH_REFRESH_TOKEN,
+        client_id: MAKE_OAUTH_CLIENT_ID,
+        client_secret: MAKE_OAUTH_CLIENT_SECRET
+      });
+      const { data } = await axios.post("https://www.make.com/oauth/v2/token", params.toString(), {
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        timeout: 15000
+      });
+      const access = data?.access_token;
+      const expiresIn = data?.expires_in || 3600;
+      if (!access) throw new Error("OAuth: access_token 없음");
+      OAUTH.cached.token = access;
+      OAUTH.cached.exp = Math.floor(Date.now() / 1000) + (expiresIn - 30);
+      return access;
+    }
+    return "";
+  }
+};
+
+// ===== Make API caller (dual mode; webhook 우선이므로 API는 보조)
+async function callMake(method, url, { params, data } = {}) {
+  let headers = { "Content-Type": "application/json" };
+  let using = "token";
+
+  const bearer = await OAUTH.getAccessToken();
+  if (bearer) {
+    headers.Authorization = `Bearer ${bearer}`;
+    using = "bearer";
+  } else if (MAKE_TOKEN) {
+    headers.Authorization = `Token ${MAKE_TOKEN}`;
+    using = "token";
+  } else {
+    throw new Error("Make 인증정보 없음(Bearer/Token)");
+  }
+
+  const r = await axios.request({
+    method,
+    baseURL: MAKE_API_BASE,
+    url,
+    headers,
+    params,
+    data,
+    timeout: 20000,
+    validateStatus: () => true
+  });
+
+  if (r.status >= 200 && r.status < 300) return { data: r.data, using, status: r.status };
+  const detail = r.data || { status: r.status };
+  if (r.status === 403 && using === "token") {
+    throw new Error("SC403: 조직이 Token 인증 금지. OAuth(Bearer)로 전환 필요.");
+  }
+  throw Object.assign(new Error(`Make API ${r.status}`), { detail });
+}
+
+// ===== Make routes
+// ping: Free/Webhook 모드에선 API 대신 간단 상태만
 app.get("/make/ping", async (_req, res) => {
   try {
-    if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
+    if (SCENARIO_WEBHOOK_URL) {
+      return res.json({ ok: true, mode: "webhook", webhook: SCENARIO_WEBHOOK_URL });
+    }
     if (!MAKE_TEAM_ID) return res.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
-    const r = await make.get(`/scenarios`, {
-      params: { limit: 1, teamId: MAKE_TEAM_ID }
-    });
-    res.json({ ok: true, sample: r.data });
+    const out = await callMake("GET", "/scenarios", { params: { limit: 1, teamId: MAKE_TEAM_ID } });
+    res.json({ ok: true, mode: out.using, sample: out.data });
   } catch (e) {
-    res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
+    res.status(500).json({ ok: false, detail: e.detail || e.message });
   }
 });
 
-// 배포: 비활성화 → 블루프린트 PUT → 활성화 (teamId 포함)
+// deploy: API 필요(유료/OAuth 권장). Free에서는 UI로 변경 권장
 app.post("/make/deploy", async (req, res) => {
   try {
+    if (SCENARIO_WEBHOOK_URL) {
+      return res.status(400).json({ ok: false, error: "not_supported_in_webhook_mode" });
+    }
     const { scenarioId, blueprint } = req.body || {};
-    if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
     if (!MAKE_TEAM_ID) return res.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
     if (!scenarioId || !blueprint) return res.status(400).json({ ok: false, error: "need scenarioId & blueprint" });
 
-    await make.post(`/scenarios/${scenarioId}/deactivate`, null, {
-      params: { teamId: MAKE_TEAM_ID }
-    });
-
-    await make.put(`/scenarios/${scenarioId}/blueprint`, blueprint, {
-      headers: { "Content-Type": "application/json" },
-      params: { teamId: MAKE_TEAM_ID }
-    });
-
-    await make.post(`/scenarios/${scenarioId}/activate`, null, {
-      params: { teamId: MAKE_TEAM_ID }
-    });
+    await callMake("POST", `/scenarios/${scenarioId}/deactivate`, { params: { teamId: MAKE_TEAM_ID } });
+    await callMake("PUT", `/scenarios/${scenarioId}/blueprint`, { params: { teamId: MAKE_TEAM_ID }, data: blueprint });
+    await callMake("POST", `/scenarios/${scenarioId}/activate`, { params: { teamId: MAKE_TEAM_ID } });
 
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
+    res.status(500).json({ ok: false, detail: e.detail || e.message });
   }
 });
 
-// 실행: API 직결(run) (teamId 포함)
+// run: Webhook 우선 → 없으면 API(run)
 app.post("/make/run", async (req, res) => {
   try {
+    const payload = req.body?.payload || {};
+    if (SCENARIO_WEBHOOK_URL) {
+      const r = await axios.post(SCENARIO_WEBHOOK_URL, payload, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 20000
+      });
+      return res.json({ ok: true, mode: "webhook", result: r.data || true });
+    }
+
+    // API 경로 (유료/OAuth)
     const { scenarioId } = req.body || {};
-    if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
     if (!MAKE_TEAM_ID) return res.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
     if (!scenarioId) return res.status(400).json({ ok: false, error: "need scenarioId" });
 
-    const r = await make.post(`/scenarios/${scenarioId}/run`, null, {
-      params: { teamId: MAKE_TEAM_ID }
-    });
-    res.json({ ok: true, result: r.data || true });
+    const out = await callMake("POST", `/scenarios/${scenarioId}/run`, { params: { teamId: MAKE_TEAM_ID } });
+    res.json({ ok: true, mode: out.using, result: out.data || true });
   } catch (e) {
-    res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
+    res.status(500).json({ ok: false, detail: e.response?.data || e.message });
   }
 });
 
-// === 임시 파일 정리(24h 지난 PNG 삭제) — 필요시 스케줄러에서 호출
+// ===== housekeeping
 app.post("/housekeep", (_req, res) => {
   const now = Date.now(), DAY = 24 * 60 * 60 * 1000;
   let removed = 0;
@@ -210,13 +289,7 @@ app.post("/housekeep", (_req, res) => {
 });
 
 /**
- * /run
- * {
- *   "plan": { "action":"auto_execute", "modules":[
- *     { "type":"generate_image", "prompt":"차분한 색감의 쇼핑 블로그용 일러스트 배경", "size":"1024x1024" },
- *     { "type":"write_blog", "topic":"쿠팡 신상품 3개 리뷰 작성" }
- *   ]}
- * }
+ * /run — sample pipeline (OpenAI)
  */
 app.post("/run", async (req, res) => {
   try {
@@ -254,9 +327,9 @@ app.post("/run", async (req, res) => {
   }
 });
 
-// 전역 안전망: 프로세스 크래시 방지(연결 끊김 예방)
+// ===== Guards
 process.on("unhandledRejection", (r) => console.error("UnhandledRejection:", r));
 process.on("uncaughtException", (e) => console.error("UncaughtException:", e));
 
-// 서버 실행
+// ===== Start
 app.listen(PORT, () => console.log(`orchestrator running on :${PORT}`));
