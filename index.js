@@ -4,21 +4,19 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
-// ===== 필수 환경변수 전역 상수화 =====
-// 이 상수화 부분이 유효한지 확인했으므로,
-// 이제 LangChain 생성자에서 직접 process.env를 사용합니다.
-const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
-const GOOGLE_API_KEY_CONST = (process.env.GOOGLE_API_KEY || '').trim();
-const GOOGLE_CSE_ID_CONST = (process.env.GOOGLE_CSE_ID || '').trim();
+// ===== 필수 환경변수 전역 상수로 정의 =====
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
+const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || '').trim();
+const GOOGLE_CSE_ID = (process.env.GOOGLE_CSE_ID || '').trim();
 
 // ===== 환경변수 체크 =====
 console.log('--- Environment Variables Check ---');
-console.log('OPENAI_API_KEY:', OPENAI_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
-console.log('GOOGLE_API_KEY:', GOOGLE_API_KEY_CONST ? 'Loaded' : 'Not Loaded');
-console.log('GOOGLE_CSE_ID:', GOOGLE_CSE_ID_CONST ? 'Loaded' : 'Not Loaded');
+console.log('OPENAI_API_KEY:', OPENAI_API_KEY ? 'Loaded' : 'Not Loaded');
+console.log('GOOGLE_API_KEY:', GOOGLE_API_KEY ? 'Loaded' : 'Not Loaded');
+console.log('GOOGLE_CSE_ID:', GOOGLE_CSE_ID ? 'Loaded' : 'Not Loaded');
 console.log('-----------------------------------');
 
-if (!OPENAI_API_KEY_CONST || !GOOGLE_API_KEY_CONST || !GOOGLE_CSE_ID_CONST) {
+if (!OPENAI_API_KEY || !GOOGLE_API_KEY || !GOOGLE_CSE_ID) {
     console.error('❌ 필수 환경변수가 설정되지 않았습니다.');
     process.exit(1);
 }
@@ -69,16 +67,15 @@ const SORAIEL_IDENTITY = `
 `;
 
 const llm = new ChatOpenAI({
-    apiKey: OPENAI_API_KEY_CONST,
+    apiKey: OPENAI_API_KEY,
     temperature: 0.7,
     modelName: 'gpt-4o-mini'
 });
 
 // ===== Google 검색 모듈 명시 주입 =====
-// 직접 process.env를 사용하도록 수정했습니다.
 const googleSearchTool = new GoogleCustomSearch({
-    apiKey: process.env.GOOGLE_API_KEY,
-    engineId: process.env.GOOGLE_CSE_ID
+    apiKey: GOOGLE_API_KEY,
+    engineId: GOOGLE_CSE_ID
 });
 
 // ===== Agent Prompt =====
