@@ -1,7 +1,7 @@
-// index.js — 오케스트레이션 안정판 (+ Make 연동/보안 라우트 포함 완전본)
+// index.js — 오케스트레이션 안정판 (+ Make 연동/보안/팀ID 포함 완전본)
 // - generate_image: url 우선, 없으면 b64→파일 저장, 60s 타임아웃, 2회 재시도, 1024→512 자동 다운스케일
 // - write_blog: 안정 파라미터, JSON 실패 원문 반환
-// - ADMIN_TOKEN 보안, /__whoami, /make/ping, /make/deploy(Off→PUT→On), /make/run(API 실행)
+// - ADMIN_TOKEN 보안, /__whoami, /make/ping, /make/deploy(Off→PUT→On), /make/run(API 실행, teamId 포함)
 
 const express = require("express");
 const axios = require("axios");
@@ -17,11 +17,12 @@ if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
 app.use("/files", express.static(FILE_DIR, { maxAge: "1d", immutable: true }));
 
 // ==== ENV ====
-const PORT = process.env.PORT || 8080;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; // (선택) 이미지/블로그 모듈에서 사용
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";        // (권장) API 보호용
+const PORT = (process.env.PORT || 8080);
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim(); // (선택) 이미지/블로그 모듈에서 사용
+const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();        // (권장) API 보호용
 const MAKE_API_BASE = (process.env.MAKE_API_BASE || "https://us2.make.com/api/v2").trim();
-const MAKE_TOKEN = (process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "").trim(); // 호환성
+const MAKE_TOKEN = ((process.env.MAKE_TOKEN || process.env.MAKE_API_KEY || "")).trim(); // 호환성
+const MAKE_TEAM_ID = (process.env.MAKE_TEAM_ID || "").trim();
 
 // ==== OpenAI 클라이언트 ====
 const openai = axios.create({
@@ -112,7 +113,8 @@ app.get("/__whoami", (_req, res) => {
       has_OPENAI_API_KEY: !!OPENAI_API_KEY,
       has_ADMIN_TOKEN: !!ADMIN_TOKEN,
       MAKE_API_BASE,
-      has_MAKE_TOKEN: !!MAKE_TOKEN
+      has_MAKE_TOKEN: !!MAKE_TOKEN,
+      MAKE_TEAM_ID
     },
     routes: ["/health", "/__whoami", "/files/*", "/housekeep", "/run", "/make/ping", "/make/deploy", "/make/run"]
   });
@@ -135,27 +137,40 @@ const make = axios.create({
 });
 
 // === Make 라우트 ===
-// 연결 확인
+// 연결 확인 (teamId 필수)
 app.get("/make/ping", async (_req, res) => {
   try {
     if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
-    const r = await make.get(`/scenarios?limit=1`);
+    if (!MAKE_TEAM_ID) return res.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
+    const r = await make.get(`/scenarios`, {
+      params: { limit: 1, teamId: MAKE_TEAM_ID }
+    });
     res.json({ ok: true, sample: r.data });
   } catch (e) {
     res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
   }
 });
 
-// 배포: 비활성화 → 블루프린트 PUT → 활성화
+// 배포: 비활성화 → 블루프린트 PUT → 활성화 (teamId 포함)
 app.post("/make/deploy", async (req, res) => {
   try {
     const { scenarioId, blueprint } = req.body || {};
     if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
+    if (!MAKE_TEAM_ID) return res.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
     if (!scenarioId || !blueprint) return res.status(400).json({ ok: false, error: "need scenarioId & blueprint" });
 
-    await make.post(`/scenarios/${scenarioId}/deactivate`);
-    await make.put(`/scenarios/${scenarioId}/blueprint`, blueprint, { headers: { "Content-Type": "application/json" } });
-    await make.post(`/scenarios/${scenarioId}/activate`);
+    await make.post(`/scenarios/${scenarioId}/deactivate`, null, {
+      params: { teamId: MAKE_TEAM_ID }
+    });
+
+    await make.put(`/scenarios/${scenarioId}/blueprint`, blueprint, {
+      headers: { "Content-Type": "application/json" },
+      params: { teamId: MAKE_TEAM_ID }
+    });
+
+    await make.post(`/scenarios/${scenarioId}/activate`, null, {
+      params: { teamId: MAKE_TEAM_ID }
+    });
 
     res.json({ ok: true });
   } catch (e) {
@@ -163,14 +178,17 @@ app.post("/make/deploy", async (req, res) => {
   }
 });
 
-// 실행: API 직결(run)
+// 실행: API 직결(run) (teamId 포함)
 app.post("/make/run", async (req, res) => {
   try {
     const { scenarioId } = req.body || {};
     if (!MAKE_TOKEN) return res.status(400).json({ ok: false, error: "missing_MAKE_TOKEN" });
+    if (!MAKE_TEAM_ID) return res.status(400).json({ ok: false, error: "missing_MAKE_TEAM_ID" });
     if (!scenarioId) return res.status(400).json({ ok: false, error: "need scenarioId" });
 
-    const r = await make.post(`/scenarios/${scenarioId}/run`);
+    const r = await make.post(`/scenarios/${scenarioId}/run`, null, {
+      params: { teamId: MAKE_TEAM_ID }
+    });
     res.json({ ok: true, result: r.data || true });
   } catch (e) {
     res.status(500).json({ ok: false, detail: e?.response?.data || e.message });
