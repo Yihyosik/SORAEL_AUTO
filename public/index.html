@@ -1,30 +1,22 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Soraiel Chat</title>
+  <title>소라엘 채팅</title>
   <style>
     body {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      background: #121212;
-      color: #e0e0e0;
+      background: #1c1c1e; /* 다크모드 배경 */
       display: flex;
       flex-direction: column;
       height: 100vh;
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
+      color: #f5f5f7;
     }
-    header {
-      padding: 15px;
-      background: #1e1e1e;
-      color: #ff914d;
-      font-weight: bold;
-      text-align: center;
-      font-size: 18px;
-      border-bottom: 1px solid #333;
-    }
+
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -34,6 +26,7 @@
       gap: 10px;
       -webkit-overflow-scrolling: touch;
     }
+
     .msg {
       padding: 10px 14px;
       border-radius: 18px;
@@ -41,46 +34,57 @@
       line-height: 1.4;
       animation: fadeIn 0.3s ease;
       word-wrap: break-word;
+      white-space: pre-wrap;
     }
+
     .user {
-      background: #007aff;
+      background: #0a84ff;
       color: white;
       align-self: flex-end;
       border-bottom-right-radius: 4px;
     }
+
     .bot {
-      background: #1e1e1e;
-      color: #e0e0e0;
+      background: #2c2c2e;
+      color: #f5f5f7;
       align-self: flex-start;
       border-bottom-left-radius: 4px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.4);
     }
-    #inputArea {
+
+    #input-area {
       display: flex;
       padding: 10px;
-      background: #1e1e1e;
-      border-top: 1px solid #333;
+      border-top: 1px solid #2c2c2e;
+      background: #1c1c1e;
     }
+
     #input {
       flex: 1;
       padding: 10px;
       border: none;
-      border-radius: 20px;
+      border-radius: 18px;
       outline: none;
-      font-size: 16px;
-      background: #2a2a2a;
-      color: #fff;
+      background: #2c2c2e;
+      color: #f5f5f7;
     }
-    #sendBtn {
-      background: #ff914d;
+
+    #send {
+      margin-left: 10px;
+      padding: 10px 16px;
       border: none;
+      border-radius: 18px;
+      background: #0a84ff;
       color: white;
-      padding: 0 16px;
-      margin-left: 8px;
-      border-radius: 20px;
       cursor: pointer;
       font-weight: bold;
     }
+
+    #send:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(5px); }
       to { opacity: 1; transform: translateY(0); }
@@ -88,46 +92,46 @@
   </style>
 </head>
 <body>
-  <header>Soraiel</header>
   <div id="messages"></div>
-  <div id="inputArea">
-    <input type="text" id="input" placeholder="메시지를 입력하세요..." />
-    <button id="sendBtn">전송</button>
+  <div id="input-area">
+    <input id="input" type="text" placeholder="메시지를 입력하세요..." />
+    <button id="send">전송</button>
   </div>
 
   <script>
-    const messagesDiv = document.getElementById("messages");
+    const messages = document.getElementById("messages");
     const input = document.getElementById("input");
-    const sendBtn = document.getElementById("sendBtn");
+    const sendBtn = document.getElementById("send");
+
+    function appendMessage(text, className) {
+      const div = document.createElement("div");
+      div.className = "msg " + className;
+      div.textContent = text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
 
     async function sendMessage() {
       const text = input.value.trim();
       if (!text) return;
-      
-      addMessage(text, "user");
+      appendMessage(text, "user");
       input.value = "";
+      sendBtn.disabled = true;
 
       try {
-        // 서버 API 연동
-        const res = await fetch("https://soraiel-server.onrender.com/api/chat", {
+        const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text })
         });
 
         const data = await res.json();
-        addMessage(data.reply || "⚠️ 서버 응답 없음", "bot");
+        appendMessage(data.reply, "bot");
       } catch (err) {
-        addMessage("❌ 오류 발생: " + err.message, "bot");
+        appendMessage("⚠️ 오류 발생: " + err.message, "bot");
+      } finally {
+        sendBtn.disabled = false;
       }
-    }
-
-    function addMessage(text, sender) {
-      const msg = document.createElement("div");
-      msg.className = "msg " + sender;
-      msg.textContent = text;
-      messagesDiv.appendChild(msg);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
     sendBtn.onclick = sendMessage;
@@ -135,7 +139,7 @@
       if (e.key === "Enter") sendMessage();
     });
 
-    // iOS 키보드 잘림 방지
+    // 🔧 iOS 키보드 잘림 방지
     if (window.visualViewport) {
       const chatContainer = document.getElementById("messages");
       window.visualViewport.addEventListener("resize", () => {
