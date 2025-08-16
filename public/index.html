@@ -5,8 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>소라엘 채팅</title>
 <style>
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f7fa; display: flex; flex-direction: column; height: 100vh; }
-  #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f7fa;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    -webkit-overflow-scrolling: touch;
+  }
   .msg { padding: 10px 14px; border-radius: 18px; max-width: 80%; animation: fadeIn 0.3s ease; }
   .user { background: #007aff; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
   .bot { background: white; color: black; align-self: flex-start; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -56,6 +73,14 @@ async function sendMessage() {
 
 sendBtn.onclick = sendMessage;
 input.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+
+// 🔧 iOS 키보드 잘림 방지
+if (window.visualViewport) {
+  const chatContainer = document.getElementById("messages");
+  window.visualViewport.addEventListener("resize", () => {
+    chatContainer.style.height = window.visualViewport.height + "px";
+  });
+}
 </script>
 </body>
 </html>
