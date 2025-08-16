@@ -459,6 +459,32 @@
       });
     }
 
+    // 🔧 새로운 함수: 봇 응답을 동적으로 생성
+    function generateBotResponse(userText) {
+      const lowerCaseText = userText.toLowerCase();
+
+      if (lowerCaseText.includes('안녕') || lowerCaseText.includes('안녕하세요')) {
+        return '안녕하세요! 무엇을 도와드릴까요?';
+      }
+      if (lowerCaseText.includes('녕') || lowerCaseText.includes('안녕')) {
+        return '안녕하세요! 무엇을 도와드릴까요?';
+      }
+      if (lowerCaseText.includes('이름')) {
+        return '제 이름은 소라엘입니다. 당신의 훌륭한 조수가 되어 드릴게요.';
+      }
+      if (lowerCaseText.includes('넌 누구')) {
+        return '저는 당신의 요청을 처리하는 똑똑한 AI 조수입니다.';
+      }
+      if (lowerCaseText.includes('고마워') || lowerCaseText.includes('감사')) {
+        return '천만에요. 더 필요한 것이 있으면 언제든지 말씀해주세요!';
+      }
+      if (lowerCaseText.includes('어때')) {
+        return '저는 언제나 완벽하게 작동합니다. 당신의 질문을 기다리고 있었어요.';
+      }
+      // 아무것도 해당되지 않을 때의 기본 응답
+      return `죄송합니다. 아직 당신의 말씀을 완전히 이해하지 못했습니다. 더 자세히 말씀해주시면 감사하겠습니다.`;
+    }
+
     function sendMessage() {
       const text = messageInput.value.trim();
       if (!text) return;
@@ -470,26 +496,25 @@
       
       showTypingIndicator();
       
+      // 봇 응답을 생성하고 추가
       setTimeout(() => {
         hideTypingIndicator();
-        addMessage(`안녕하세요! "${text}"에 대한 Soraiel의 응답입니다. 더 자세한 도움이 필요하시면 언제든 말씀해주세요.`, false);
+        const botResponse = generateBotResponse(text);
+        addMessage(botResponse, false);
       }, 1500);
     }
 
     sendButton.addEventListener('click', sendMessage);
 
-    // 🔧 keydown 이벤트 로직 강화: e.preventDefault()를 맨 앞으로 옮겨 엔터 키 기본 동작을 즉시 차단
     messageInput.addEventListener('keydown', (e) => {
-      // Shift + Enter는 줄바꿈을 위해 허용
       if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault(); // 엔터 키의 기본 동작(줄바꿈 및 폼 제출)을 즉시 차단
+        e.preventDefault();
         sendMessage();
       }
     });
     
     messageInput.addEventListener('input', adjustTextareaHeight);
 
-    // 🔧 iOS 키보드 대응: body 대신 chatContainer의 높이를 조절하여 안정성 확보
     if (window.visualViewport) {
       const initialHeight = window.visualViewport.height;
       window.visualViewport.addEventListener('resize', () => {
@@ -503,9 +528,7 @@
       });
     }
 
-    // 초기 상태 설정
     adjustTextareaHeight();
-    
     window.addEventListener('load', scrollToBottom);
 
   </script>
