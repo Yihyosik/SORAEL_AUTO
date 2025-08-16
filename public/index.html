@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Soraiel Chat</title>
   <style>
-    /* Claude UI 스타일 완전 재현 */
+    /* ... (CSS 코드는 이전과 동일) ... */
     :root {
       --bg-primary: #F8F9FA;
       --bg-secondary: #FFFFFF;
@@ -378,7 +378,6 @@
     const messageInput = document.getElementById('messageInput');
     const sendButton = document.getElementById('sendButton');
 
-    // 입력창 자동 높이 조절 및 전송 버튼 활성화/비활성화
     function adjustTextareaHeight() {
       messageInput.style.height = 'auto';
       messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
@@ -479,12 +478,12 @@
 
     sendButton.addEventListener('click', sendMessage);
 
+    // 🔧 keydown 이벤트 로직 강화: e.preventDefault()를 맨 앞으로 옮겨 엔터 키 기본 동작을 즉시 차단
     messageInput.addEventListener('keydown', (e) => {
+      // Shift + Enter는 줄바꿈을 위해 허용
       if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (messageInput.value.trim()) {
-          sendMessage();
-        }
+        e.preventDefault(); // 엔터 키의 기본 동작(줄바꿈 및 폼 제출)을 즉시 차단
+        sendMessage();
       }
     });
     
@@ -495,11 +494,9 @@
       const initialHeight = window.visualViewport.height;
       window.visualViewport.addEventListener('resize', () => {
         const viewportHeight = window.visualViewport.height;
-        // 키보드가 올라올 때만 높이 조정
         if (viewportHeight < initialHeight) {
           chatContainer.style.height = `${viewportHeight - (document.body.clientHeight - chatContainer.offsetHeight)}px`;
         } else {
-          // 키보드가 사라질 때 원래 높이로 복원
           chatContainer.style.height = '100%'; 
         }
         scrollToBottom();
