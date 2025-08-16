@@ -1,86 +1,154 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>소라엘 채팅</title>
-<style>
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #f5f7fa;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  #messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 15px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    -webkit-overflow-scrolling: touch;
-  }
-  .msg { padding: 10px 14px; border-radius: 18px; max-width: 80%; animation: fadeIn 0.3s ease; }
-  .user { background: #007aff; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-  .bot { background: white; color: black; align-self: flex-start; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  #input-area { display: flex; padding: 10px; border-top: 1px solid #ddd; background: white; }
-  #msg-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 18px; outline: none; font-size: 16px; }
-  #send-btn { margin-left: 8px; background: #007aff; color: white; border: none; padding: 0 16px; border-radius: 18px; font-size: 16px; cursor: pointer; }
-  #send-btn:active { background: #005bb5; }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Soraiel Chat</title>
+  <style>
+    :root {
+      --bg-color: #121212;
+      --header-color: #1e1e1e;
+      --text-color: #ffffff;
+      --subtext-color: #a0a0a0;
+      --input-bg: #2a2a2a;
+      --accent: #3b82f6;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background-color: var(--header-color);
+      padding: 12px;
+      text-align: center;
+      font-weight: bold;
+      border-bottom: 1px solid #2d2d2d;
+      font-size: 15px;
+    }
+
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 16px;
+      margin-bottom: 12px;
+      line-height: 1.4;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+
+    .bot {
+      background: #2d2d2d;
+      color: var(--text-color);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+
+    .user {
+      background: var(--accent);
+      color: white;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+
+    .input-area {
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      background: var(--header-color);
+      border-top: 1px solid #2d2d2d;
+    }
+
+    .input-area input {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 24px;
+      outline: none;
+      background: var(--input-bg);
+      color: var(--text-color);
+      font-size: 14px;
+    }
+
+    .input-area button {
+      margin-left: 8px;
+      background: var(--accent);
+      border: none;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: white;
+      font-size: 18px;
+    }
+
+    /* 화면 잘림 방지 */
+    html, body {
+      height: 100%;
+      overscroll-behavior: none;
+    }
+
+    .chat-container {
+      -webkit-overflow-scrolling: touch;
+    }
+  </style>
 </head>
 <body>
-<div id="messages"></div>
-<div id="input-area">
-  <input id="msg-input" type="text" placeholder="메시지를 입력하세요..." />
-  <button id="send-btn">전송</button>
-</div>
-<script>
-const messagesDiv = document.getElementById('messages');
-const input = document.getElementById('msg-input');
-const sendBtn = document.getElementById('send-btn');
+  <header>Soraiel Chat</header>
+  <div class="chat-container" id="chat">
+    <div class="message bot">안녕하세요, 저는 <b>Soraiel</b>입니다. 무엇을 도와드릴까요?</div>
+  </div>
 
-function addMessage(text, cls) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  div.className = 'msg ' + cls;
-  messagesDiv.appendChild(div);
-  messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
+  <div class="input-area">
+    <input type="text" id="userInput" placeholder="메시지를 입력하세요…" />
+    <button onclick="sendMessage()">➤</button>
+  </div>
 
-async function sendMessage() {
-  const text = input.value.trim();
-  if (!text) return;
-  addMessage(text, 'user');
-  input.value = '';
-  try {
-    const res = await fetch('/l2/api/dialogue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text })
+  <script>
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("userInput");
+
+    function sendMessage() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      const userMsg = document.createElement("div");
+      userMsg.className = "message user";
+      userMsg.textContent = text;
+      chat.appendChild(userMsg);
+
+      input.value = "";
+
+      setTimeout(() => {
+        const botMsg = document.createElement("div");
+        botMsg.className = "message bot";
+        botMsg.textContent = "Soraiel이 응답 중입니다...";
+        chat.appendChild(botMsg);
+        chat.scrollTop = chat.scrollHeight;
+      }, 600);
+
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    input.addEventListener("keypress", e => {
+      if (e.key === "Enter") sendMessage();
     });
-    const data = await res.json();
-    addMessage(data.response || '응답 없음', 'bot');
-  } catch (err) {
-    addMessage('오류: ' + err.message, 'bot');
-  }
-}
-
-sendBtn.onclick = sendMessage;
-input.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
-
-// 🔧 iOS 키보드 잘림 방지
-if (window.visualViewport) {
-  const chatContainer = document.getElementById("messages");
-  window.visualViewport.addEventListener("resize", () => {
-    chatContainer.style.height = window.visualViewport.height + "px";
-  });
-}
-</script>
+  </script>
 </body>
 </html>
