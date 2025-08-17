@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.6 (최종 안정화 완성본)
+// index.js — Soraiel v5.7a (라우팅 정리 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -32,8 +32,14 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// HTML 서빙
-app.use(express.static(path.join(__dirname, 'public')));
+// ===== 라우팅: 퍼블릭 폴더 우선 =====
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
+
+// "/" 요청은 무조건 index.html 반환 (소스코드 노출 방지)
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
 
 // ===== 대화 기록 =====
 const HISTORY_FILE = path.join(__dirname, 'history.json');
@@ -72,7 +78,7 @@ const memory = new BufferMemory({
   memoryKey: "chat_history"
 });
 
-// ===== LLMChain 기반 대화 실행기 (에이전트 대신 체인) =====
+// ===== LLMChain 기반 대화 실행기 =====
 let chatChain;
 async function initializeChatChain() {
   chatChain = new LLMChain({
@@ -114,11 +120,6 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// HTML 기본 페이지
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 // --- 대화 ---
 app.post('/chat', async (req, res) => {
   const msg = req.body.message;
@@ -126,11 +127,10 @@ app.post('/chat', async (req, res) => {
     const result = await chatChain.call({ input: msg });
     const aiResponse = result?.text?.trim() || "응답 실패";
 
-    // ✅ Memory가 기록 관리하므로 conversationHistory는 로그용
-    if (!conversationHistory.length || conversationHistory[conversationHistory.length - 1].content !== aiResponse) {
-      conversationHistory.push({ role: 'assistant', content: aiResponse });
-    }
-    if (conversationHistory.length > 30) conversationHistory.shift();
+    // Memory가 기록 관리, conversationHistory는 로그용만
+    conversationHistory.push({ role: 'user', content: msg });
+    conversationHistory.push({ role: 'assistant', content: aiResponse });
+    if (conversationHistory.length > 30) conversationHistory.splice(0, conversationHistory.length - 30);
 
     await saveHistory();
     res.json({ response: aiResponse });
@@ -314,5 +314,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.6 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7a 실행 중: 포트 ${PORT}`));
 })();
