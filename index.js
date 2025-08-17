@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.7g (최종 안정화 완성본)
+// index.js — Soraiel v5.7h (최종 안정화 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -47,6 +47,28 @@ app.use(express.static(PUBLIC_DIR));
 app.get('/', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
+
+// ===== 대화 기록 (로그용) =====
+const HISTORY_FILE = path.join(__dirname, 'history.json');
+let conversationHistory = [];
+
+// 🔧 loadHistory 함수 복원
+async function loadHistory() {
+  try {
+    const data = await fs.readFile(HISTORY_FILE, 'utf-8');
+    conversationHistory = JSON.parse(data);
+  } catch {
+    conversationHistory = [];
+  }
+}
+
+async function saveHistory() {
+  try {
+    await fs.writeFile(HISTORY_FILE, JSON.stringify(conversationHistory, null, 2));
+  } catch (err) {
+    console.error("❌ 대화 기록 저장 실패:", err);
+  }
+}
 
 // ===== 프롬프트 =====
 const SORAIEL_IDENTITY = `
@@ -319,5 +341,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7g 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7h 실행 중: 포트 ${PORT}`));
 })();
