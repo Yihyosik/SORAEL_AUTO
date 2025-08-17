@@ -31,11 +31,8 @@ if (!OPENAI_API_KEY_CONST) {
 }
 
 const { ChatOpenAI } = require('@langchain/openai');
-const { LLMChain } = require('langchain/chains');
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
-const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage } = require('@langchain/core/messages');
-const { BufferMemory } = require('langchain/memory');
 
 const app = express();
 app.use(express.json());
@@ -52,7 +49,6 @@ app.get('/', (_req, res) => {
 const HISTORY_FILE = path.join(__dirname, 'history.json');
 let conversationHistory = [];
 
-// 🔧 loadHistory 함수 복원
 async function loadHistory() {
   try {
     const data = await fs.readFile(HISTORY_FILE, 'utf-8');
@@ -83,27 +79,6 @@ const llm = new ChatOpenAI({
   temperature: 0.4,
   modelName: 'gpt-4o'
 });
-
-const chatPrompt = ChatPromptTemplate.fromMessages([
-  new SystemMessage(SORAIEL_IDENTITY),
-  new MessagesPlaceholder("chat_history"),
-]);
-
-const memory = new BufferMemory({
-  returnMessages: true,
-  memoryKey: "chat_history"
-});
-
-// ===== LLMChain 기반 대화 실행기 =====
-let chatChain;
-async function initializeChatChain() {
-  chatChain = new LLMChain({
-    llm,
-    prompt: chatPrompt,
-    memory
-  });
-  console.log("✅ 소라엘 ChatChain initialized");
-}
 
 // ===== 검색 전용 Tool =====
 const googleSearchTool = new GoogleCustomSearch();
@@ -136,12 +111,11 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// --- 대화 (수정 완료: 중복/짤림 제거) ---
+// --- 대화 (최종 수정: 중복/짤림 제거) ---
 app.post('/chat', async (req, res) => {
   try {
     const userMessage = req.body.message;
 
-    // LangChain 대신 직접 호출하여 memory 꼬임 방지
     const response = await llm.invoke([
       new SystemMessage(SORAIEL_IDENTITY),
       { role: "user", content: userMessage }
@@ -152,9 +126,11 @@ app.post('/chat', async (req, res) => {
       response?.text?.trim?.() ||
       "응답 실패";
 
-    // 로그용 history.json 저장
     conversationHistory.push({ user: userMessage, ai: aiResponse });
     await saveHistory();
+
+    console.log("💬 사용자:", userMessage);
+    console.log("🤖 소라엘:", aiResponse);
 
     res.json({ response: aiResponse });
   } catch (err) {
@@ -354,7 +330,6 @@ process.on("unhandledRejection", reason => console.error("❌ Unhandled:", reaso
 // ===== 서버 시작 =====
 const PORT = process.env.PORT || 3000;
 (async () => {
-  await initializeChatChain();
   await loadHistory();
   app.listen(PORT, () => console.log(`🚀 Soraiel v5.7h 실행 중: 포트 ${PORT}`));
 })();
