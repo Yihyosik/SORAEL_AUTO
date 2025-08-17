@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v8 FULL (GOOGLE_CSE_ID 적용, 완전본)
+// index.js — Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy 개선)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -18,7 +18,7 @@ const requiredEnv = [
   "OPENAI_API_KEY",
   "MAKE_API_KEY",
   "GOOGLE_API_KEY",
-  "GOOGLE_CSE_ID",   // ✅ Render 환경변수 이름 맞춤
+  "GOOGLE_CSE_ID",
   "SUPABASE_URL",
   "SUPABASE_KEY",
   "RENDER_KEY"
@@ -34,7 +34,7 @@ const {
   OPENAI_API_KEY,
   MAKE_API_KEY,
   GOOGLE_API_KEY,
-  GOOGLE_CSE_ID,   // ✅ Render 변수 이름 반영
+  GOOGLE_CSE_ID,
   SUPABASE_URL,
   SUPABASE_KEY,
   RENDER_KEY
@@ -135,7 +135,7 @@ app.post('/search', async (req, res) => {
   try {
     const { query } = req.body;
     const resp = await axios.get("https://www.googleapis.com/customsearch/v1", {
-      params: { key: GOOGLE_API_KEY, cx: GOOGLE_CSE_ID, q: query }  // ✅ 수정됨
+      params: { key: GOOGLE_API_KEY, cx: GOOGLE_CSE_ID, q: query }
     });
     res.json({ result: resp.data });
   } catch (err) { res.status(500).json({ error: "검색 실패", detail: err.message }); }
@@ -313,16 +313,17 @@ app.post('/deploy', async (req, res) => {
     const { add_tool } = req.body;
     if (add_tool) {
       esprima.parseScript(add_tool.code);
-      const context = { console, axios };
+      const context = { console, axios, module: {} };
       vm.createContext(context);
       const fn = vm.runInContext(add_tool.code, context);
+      const toolFn = context.module.exports || fn;
 
       let testResult;
-      try { testResult = await fn({ test: true }); }
+      try { testResult = await toolFn({ test: true }); }
       catch (e) { throw new Error("Dry-run 실패: " + e.message); }
 
       const backup = { ...registry };
-      try { registry[add_tool.name] = fn; }
+      try { registry[add_tool.name] = toolFn; }
       catch (err) { registry = backup; throw err; }
     }
     res.json({ ok: true });
@@ -350,5 +351,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v8 FULL (GOOGLE_CSE_ID) 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy 개선) 실행 중: 포트 ${PORT}`));
 })();
