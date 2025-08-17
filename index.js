@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.0 (최종 복구 및 안정화 버전)
+// index.js — Soraiel v5.1 (최종 안정화 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -24,14 +24,14 @@ const { ChatOpenAI } = require('@langchain/openai');
 const { initializeAgentExecutorWithOptions } = require('langchain/agents');
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
-const { SystemMessage, HumanMessage, AIMessage } = require('@langchain/core/messages');
+const { SystemMessage } = require('@langchain/core/messages');
 const { BufferMemory } = require('langchain/memory');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// HTML 서빙 로직
+// HTML 서빙
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 대화 기록 =====
@@ -90,8 +90,6 @@ const crmDB = new sqlite3.Database('./crm.db');
 crmDB.serialize(() => {
   crmDB.run("CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT)");
 });
-
-// promisify SQLite DB methods
 const dbRun = (sql, params) => new Promise((resolve, reject) => {
   crmDB.run(sql, params, function(err) {
     if (err) reject(err);
@@ -107,7 +105,7 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// HTML 파일을 서빙하는 라우터
+// HTML 기본 페이지
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -115,25 +113,20 @@ app.get('/', (req, res) => {
 // --- 대화 ---
 app.post('/chat', async (req, res) => {
   const msg = req.body.message;
-
-  // LangChain의 메모리 형식으로 변환 (HumanMessage, AIMessage)
-  const langChainChatHistory = conversationHistory.map(msg => {
-    if (msg.role === 'user') return new HumanMessage(msg.content);
-    return new AIMessage(msg.content);
-  });
-
-  conversationHistory.push({ role: 'user', content: msg });
-  if (conversationHistory.length > 30) conversationHistory.shift();
-
   try {
-    // chatHistory 인자를 명시적으로 전달하여 오류 해결
-    const result = await agentExecutor.invoke({
-      input: msg,
-      chatHistory: langChainChatHistory
-    });
+    // LangChain Memory가 관리 → 따로 user push 불필요
+    const result = await agentExecutor.invoke({ input: msg });
 
-    const aiResponse = result.output?.trim() || "응답 실패";
+    const aiResponse =
+      result?.output ||
+      result?.returnValues?.output ||
+      (Array.isArray(result?.messages)
+        ? result.messages[result.messages.length - 1].content
+        : "응답 실패");
+
     conversationHistory.push({ role: 'assistant', content: aiResponse });
+    if (conversationHistory.length > 30) conversationHistory.shift();
+
     await saveHistory();
     res.json({ response: aiResponse });
   } catch (err) {
@@ -202,7 +195,7 @@ app.post('/build', async (req, res) => {
   res.json(plan);
 });
 
-// --- 실행 (/run) OpenAI 호출 ---
+// --- 실행 (/run) ---
 app.post('/run', async (req, res) => {
   try {
     const topic = req.body.topic || "제목 없음";
@@ -255,7 +248,7 @@ app.post('/ebook', async (req, res) => {
   res.json({ ok: true, file });
 });
 
-// --- 동영상 모듈 (ffmpeg 필요) ---
+// --- 동영상 모듈 ---
 app.post('/video', (req, res) => {
   const input = req.body.input || "input.mp4";
   const output = `output_${Date.now()}.mp4`;
@@ -266,7 +259,7 @@ app.post('/video', (req, res) => {
   });
 });
 
-// --- CRM 모듈 (sqlite) ---
+// --- CRM 모듈 ---
 app.post('/crm/add', async (req, res) => {
   try {
     const { name, email } = req.body;
@@ -297,5 +290,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeAgent();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.0 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.1 실행 중: 포트 ${PORT}`));
 })();
