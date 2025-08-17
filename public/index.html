@@ -209,7 +209,8 @@
   </div>
 
 <script>
-const API_BASE = "https://soraiel-server.onrender.com";  // 🔑 Render 서버 주소
+const API_BASE = "https://soraiel-server.onrender.com";
+
 const chat = document.getElementById('chat');
 const chatContainer = document.getElementById('chatContainer');
 const messageInput = document.getElementById('messageInput');
@@ -227,7 +228,7 @@ function addMessage(text, isUser = false) {
   const messageHeader = document.createElement('div');
   messageHeader.className = 'message-header';
   const avatar = document.createElement('div');
-  avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`;  // ✅ 오타 수정됨
+  avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`; // ✅ 수정됨
   avatar.textContent = isUser ? 'U' : 'S';
   const senderName = document.createElement('span');
   senderName.className = 'sender-name';
@@ -286,7 +287,7 @@ async function sendMessage() {
   adjustTextareaHeight();
   showTypingIndicator();
   try {
-    const response = await fetch(`${API_BASE}/chat`, {   // ✅ 서버 API 절대경로
+    const response = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: userMessage })
