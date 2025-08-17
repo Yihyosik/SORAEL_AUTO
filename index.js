@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy FIX)
+// index.js — Soraiel v9 FULL (Agent/Orchestrator Chat 포함)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -13,23 +13,6 @@ const { exec } = require('child_process');
 const vm = require("vm");
 const esprima = require("esprima");
 
-// ===== 환경변수 체크 =====
-const requiredEnv = [
-  "OPENAI_API_KEY",
-  "MAKE_API_KEY",
-  "GOOGLE_API_KEY",
-  "GOOGLE_CSE_ID",
-  "SUPABASE_URL",
-  "SUPABASE_KEY",
-  "RENDER_KEY"
-];
-requiredEnv.forEach(v => {
-  if (!process.env[v]) {
-    console.error(`❌ 필수 환경변수 누락: ${v}`);
-    process.exit(1);
-  }
-});
-
 const {
   OPENAI_API_KEY,
   MAKE_API_KEY,
@@ -41,10 +24,10 @@ const {
 } = process.env;
 
 const { ChatOpenAI } = require('@langchain/openai');
-const { LLMChain } = require('langchain/chains');
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage } = require('@langchain/core/messages');
 const { BufferMemory } = require('langchain/memory');
+const { LLMChain } = require('langchain/chains');
 
 const app = express();
 app.use(express.json());
@@ -75,6 +58,15 @@ const SORAIEL_IDENTITY = `
 실무형·정확·단호한 어조를 유지합니다.
 정확하지 않은 정보는 반드시 "없다"고 말합니다.
 불필요한 접두사·군더더기 표현은 제거합니다.
+
+너는 단순히 대답만 하는 것이 아니라, 외부 툴과 API를 직접 사용할 수 있다.
+사용 가능한 기능:
+- /search : Google 검색
+- /memory/import, /memory/search : Supabase 기억 저장 및 검색
+- /crm/add, /crm/list : CRM 고객 관리
+- /execute : 툴 실행
+- /deploy : 새로운 툴 추가
+사용자의 요청에 따라 적절한 툴을 선택하여 실행하고, 그 결과를 답변에 포함시켜라.
 `;
 
 const llm = new ChatOpenAI({
@@ -90,7 +82,6 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
 ]);
 
 const memory = new BufferMemory({ returnMessages: true, memoryKey: "chat_history" });
-
 let chatChain;
 async function initializeChatChain() {
   chatChain = new LLMChain({ llm, prompt: chatPrompt, memory });
@@ -106,31 +97,66 @@ let registry = {
   "http.fetch": async ({ url, method = "GET", data }) => {
     const resp = await axios({ url, method, data });
     return resp.data;
-  },
-  "pipeline.run": async ({ steps }) => {
-    const results = [];
-    for (const step of steps) {
-      if (registry[step.tool]) results.push(await registry[step.tool](step.args));
-    }
-    return results;
   }
 };
 
-// ===== /chat =====
+// ===== /chat (에이전트 모드) =====
 app.post('/chat', async (req, res) => {
   try {
-    const result = await chatChain.call({ input: req.body.message });
-    const aiResponse = result?.text?.trim() || "응답 실패";
-    conversationHistory.push({ user: req.body.message, ai: aiResponse });
+    const userMessage = req.body.message;
+    // LLM에 "어떤 툴을 써야 할지" 판단시키기
+    const decision = await llm.invoke(`
+      사용자의 요청: "${userMessage}"
+      선택지: [ "chat-only", "search", "memory-import", "memory-search", "crm", "execute", "deploy" ]
+      위 중 하나를 반드시 선택하고, 이유도 간단히 설명하라.
+    `);
+
+    let tool = "chat-only";
+    if (decision.content.includes("search")) tool = "search";
+    else if (decision.content.includes("memory-import")) tool = "memory-import";
+    else if (decision.content.includes("memory-search")) tool = "memory-search";
+    else if (decision.content.includes("crm")) tool = "crm";
+    else if (decision.content.includes("execute")) tool = "execute";
+    else if (decision.content.includes("deploy")) tool = "deploy";
+
+    let aiResponse = "";
+    if (tool === "chat-only") {
+      const result = await chatChain.call({ input: userMessage });
+      aiResponse = result?.text?.trim() || "응답 실패";
+    }
+    else if (tool === "search") {
+      const resp = await axios.get("https://www.googleapis.com/customsearch/v1", {
+        params: { key: GOOGLE_API_KEY, cx: GOOGLE_CSE_ID, q: userMessage }
+      });
+      aiResponse = JSON.stringify(resp.data.items?.slice(0, 3) || []);
+    }
+    else if (tool === "memory-import") {
+      await axios.post(`${SUPABASE_URL}/rest/v1/memory`, [{ query: userMessage, embedding: "[]" }], {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: "return=minimal" }
+      });
+      aiResponse = "기억에 저장했습니다.";
+    }
+    else if (tool === "memory-search") {
+      const { data } = await axios.post(`${SUPABASE_URL}/rest/v1/rpc/search_memory`, { query: userMessage }, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+      });
+      aiResponse = JSON.stringify(data);
+    }
+    else {
+      const result = await chatChain.call({ input: userMessage });
+      aiResponse = result?.text?.trim() || "응답 실패";
+    }
+
+    conversationHistory.push({ user: userMessage, ai: aiResponse });
     await saveHistory();
-    res.json({ response: aiResponse });
+    res.json({ response: aiResponse, tool });
   } catch (err) {
     console.error("❌ Chat 오류:", err);
     res.status(500).json({ error: "Chat 실패", detail: err.message });
   }
 });
 
-// ===== /search (Google) =====
+// ===== /search =====
 app.post('/search', async (req, res) => {
   try {
     const { query } = req.body;
@@ -141,29 +167,7 @@ app.post('/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: "검색 실패", detail: err.message }); }
 });
 
-// ===== /make =====
-app.post('/make/run', async (req, res) => {
-  try {
-    const { hookUrl, payload } = req.body;
-    if (!hookUrl) throw new Error("hookUrl 누락");
-    const resp = await axios.post(hookUrl, payload || {});
-    res.json({ ok: true, result: resp.data });
-  } catch (err) { res.status(500).json({ error: "Make Webhook 실패", detail: err.message }); }
-});
-app.post('/make/api/run', async (req, res) => {
-  try {
-    const { scenarioId, data } = req.body;
-    if (!scenarioId) throw new Error("scenarioId 누락");
-    const resp = await axios.post(
-      `https://api.make.com/v2/scenarios/${scenarioId}/run`,
-      data || {},
-      { headers: { Authorization: `Token ${MAKE_API_KEY}` } }
-    );
-    res.json({ ok: true, result: resp.data });
-  } catch (err) { res.status(500).json({ error: "Make API 실패", detail: err.message }); }
-});
-
-// ===== /memory (Supabase) =====
+// ===== /memory =====
 app.post('/memory/import', async (req, res) => {
   try {
     const { records } = req.body;
@@ -204,157 +208,39 @@ app.get('/crm/list', async (_req, res) => {
   });
 });
 
-// ===== /video =====
-app.post('/video', (req, res) => {
-  const input = req.body.input || "input.mp4";
-  const output = `output_${Date.now()}.mp4`;
-  const cmd = `ffmpeg -i ${input} -t 10 -c copy ${output}`;
-  exec(cmd, (err) => {
-    if (err) return res.status(500).json({ error: "영상 처리 실패", detail: err.message });
-    res.json({ ok: true, file: output });
-  });
-});
-
-// ===== /ebook =====
-app.post('/ebook', async (req, res) => {
-  const { title, content } = req.body;
-  const file = `ebook_${Date.now()}.md`;
-  await fs.writeFile(file, `# ${title}\n\n${content}`);
-  res.json({ ok: true, file });
-});
-
-// ===== /build & /run =====
-app.post('/build', async (req, res) => {
-  const instruction = req.body.instruction || "";
-  const planId = Date.now().toString();
-  const plan = {
-    planId,
-    steps: [
-      { tool: "generate_image", args: { prompt: instruction }, saveAs: "image" },
-      { tool: "write_blog", args: { topic: instruction }, saveAs: "blog" }
-    ]
-  };
-  res.json(plan);
-});
-app.post('/run', async (req, res) => {
-  try {
-    const topic = req.body.topic || "제목 없음";
-    const imagePrompt = req.body.prompt || topic;
-    const imgResp = await axios.post("https://api.openai.com/v1/images/generations", {
-      prompt: imagePrompt, model: "gpt-image-1", size: "512x512"
-    }, { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } });
-    const image_url = imgResp.data?.data?.[0]?.url;
-
-    const blogResp = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "주어진 주제로 블로그 글 작성" },
-        { role: "user", content: topic }
-      ]
-    }, { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } });
-    const blog_post = blogResp.data?.choices?.[0]?.message?.content;
-
-    res.json({ image_url, blog_post });
-  } catch (err) { res.status(500).json({ error: "실행 실패", detail: err.message }); }
-});
-
-// ===== /orchestrate =====
-app.post('/orchestrate', async (req, res) => {
-  const { goal = "" } = req.body;
-  const planId = Date.now().toString();
-  const plan = {
-    planId,
-    steps: [
-      { tool: "llm.generate", args: { prompt: goal }, saveAs: "text" },
-      { tool: "http.fetch", args: { url: "https://example.com" }, saveAs: "data" }
-    ]
-  };
-  res.json(plan);
-});
-
 // ===== /execute =====
 app.post('/execute', async (req, res) => {
   const { steps = [] } = req.body;
-  const planId = Date.now().toString();
   const results = {};
-  const start = Date.now();
-  let successCount = 0, failCount = 0;
-
   try {
-    await Promise.all(steps.map(async step => {
+    for (const step of steps) {
       if (!registry[step.tool]) throw new Error(`❌ Unknown tool: ${step.tool}`);
-      let attempt = 0, success = false, lastError;
-      while (attempt < 2 && !success) {
-        try {
-          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000));
-          const execPromise = registry[step.tool](step.args);
-          results[step.saveAs] = await Promise.race([execPromise, timeout]);
-          success = true;
-          successCount++;
-        } catch (err) {
-          lastError = err; attempt++;
-          await new Promise(r => setTimeout(r, 500 * attempt));
-        }
-      }
-      if (!success) { failCount++; throw lastError; }
-    }));
-
-    const duration = Date.now() - start;
-    await fs.writeFile(`runs_${planId}.json`, JSON.stringify({ steps, results, duration, successCount, failCount }, null, 2));
+      results[step.saveAs] = await registry[step.tool](step.args);
+    }
     res.json({ ok: true, results });
   } catch (err) {
     res.status(500).json({ error: "execute 실패", detail: err.message });
   }
 });
 
-// ===== /deploy (FIX) =====
+// ===== /deploy =====
 app.post('/deploy', async (req, res) => {
   try {
     const { add_tool } = req.body;
     if (add_tool) {
-      // 문법 검사
       esprima.parseScript(add_tool.code);
-
-      // 샌드박스 실행
       const context = { console, axios, module: {} };
       vm.createContext(context);
       const fn = vm.runInContext(add_tool.code, context);
-
-      // module.exports 방식 또는 함수 직접 반환
       const toolFn = context.module.exports || fn;
-
-      if (typeof toolFn !== "function") {
-        throw new Error("등록된 코드가 함수가 아닙니다.");
-      }
-
-      // Dry-run
-      let testResult;
-      try { testResult = await toolFn({ test: true }); }
-      catch (e) { throw new Error("Dry-run 실패: " + e.message); }
-
-      // Registry에 등록
-      const backup = { ...registry };
-      try { registry[add_tool.name] = toolFn; }
-      catch (err) { registry = backup; throw err; }
+      if (typeof toolFn !== "function") throw new Error("함수가 아닙니다.");
+      await toolFn({ test: true }); // Dry-run
+      registry[add_tool.name] = toolFn;
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error("❌ Deploy 오류:", err);
     res.status(500).json({ error: "deploy 실패", detail: err.message });
   }
-});
-
-// ===== /rta/webhook =====
-setInterval(() => {}, 60000);
-app.post('/rta/webhook', async (req, res) => {
-  try {
-    const signature = req.headers["x-signature"];
-    const body = JSON.stringify(req.body);
-    const expected = crypto.createHmac("sha256", MAKE_API_KEY).update(body).digest("hex");
-    if (signature !== expected) throw new Error("서명 검증 실패");
-    const plan = await llm.invoke(req.body.goal || "자동화");
-    res.json({ ok: true, plan });
-  } catch (err) { res.status(400).json({ error: "Webhook 실패", detail: err.message }); }
 });
 
 // ===== /health =====
@@ -365,5 +251,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy FIX) 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v9 FULL 실행 중: 포트 ${PORT}`));
 })();
