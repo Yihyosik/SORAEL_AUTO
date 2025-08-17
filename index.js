@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.7f (최종 안정화 완성본)
+// index.js — Soraiel v5.7g (최종 안정화 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -48,19 +48,6 @@ app.get('/', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// ===== 대화 기록 (로그용) =====
-const HISTORY_FILE = path.join(__dirname, 'history.json');
-let conversationHistory = [];
-async function loadHistory() {
-  try {
-    const data = await fs.readFile(HISTORY_FILE, 'utf-8');
-    conversationHistory = JSON.parse(data);
-  } catch {}
-}
-async function saveHistory() {
-  await fs.writeFile(HISTORY_FILE, JSON.stringify(conversationHistory, null, 2));
-}
-
 // ===== 프롬프트 =====
 const SORAIEL_IDENTITY = `
 당신은 "소라엘"이라는 이름의 AI 비서입니다.
@@ -72,7 +59,7 @@ const SORAIEL_IDENTITY = `
 const llm = new ChatOpenAI({
   apiKey: OPENAI_API_KEY_CONST,
   temperature: 0.4,
-  modelName: 'gpt-4o-mini'
+  modelName: 'gpt-4o'
 });
 
 const chatPrompt = ChatPromptTemplate.fromMessages([
@@ -127,16 +114,14 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// --- 대화 ---
+// --- 대화 (중복 제거 완료) ---
 app.post('/chat', async (req, res) => {
   try {
     const result = await chatChain.call({ input: req.body.message });
     const aiResponse = result?.text?.trim() || "응답 실패";
-
-    // 🚫 중복 제거: 서버는 Memory에만 맡기고 응답만 반환
-    res.json({ response: aiResponse });
+    res.json({ response: aiResponse }); // ✅ 응답만 반환
   } catch (err) {
-    console.error('대화 처리 중 오류:', err.message);
+    console.error('대화 처리 중 오류:', err);
     res.status(500).json({ error: '대화 처리 중 오류 발생', detail: err.message });
   }
 });
@@ -254,7 +239,7 @@ app.post('/run', async (req, res) => {
     const image_url = imgResp.data?.data?.[0]?.url;
 
     const blogResp = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: "주어진 주제로 블로그 글을 작성하라. 한국어, 실무형, 단호." },
         { role: "user", content: topic }
@@ -334,5 +319,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7f 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7g 실행 중: 포트 ${PORT}`));
 })();
