@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.3 (최종 안정화 완전판)
+// index.js — Soraiel v5.4 (최종 안정화 완전판)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -61,23 +61,25 @@ const llm = new ChatOpenAI({
   temperature: 0.4,
   modelName: 'gpt-4o-mini'
 });
-const googleSearchTool = new GoogleCustomSearch();
 const chatPrompt = ChatPromptTemplate.fromMessages([
   new SystemMessage(SORAIEL_IDENTITY),
-  new MessagesPlaceholder("chat_history"),   // ✅ 수정 완료
-  new MessagesPlaceholder("agent_scratchpad")
+  new MessagesPlaceholder("chat_history")
 ]);
-const memory = new BufferMemory({ returnMessages: true, memoryKey: "chat_history" }); // ✅ 수정 완료
+const memory = new BufferMemory({ returnMessages: true, memoryKey: "chat_history" });
 
-let agentExecutor;
-async function initializeAgent() {
-  agentExecutor = await initializeAgentExecutorWithOptions(
-    [googleSearchTool],
+// ===== 대화용 Agent (검색 미포함) =====
+let chatExecutor;
+async function initializeChatAgent() {
+  chatExecutor = await initializeAgentExecutorWithOptions(
+    [],
     llm,
     { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt, memory }
   );
-  console.log("✅ 소라엘 Agent executor initialized");
+  console.log("✅ 소라엘 Chat executor initialized");
 }
+
+// ===== 검색 전용 Tool =====
+const googleSearchTool = new GoogleCustomSearch();
 
 // ===== Registry & Vault =====
 let registry = {};
@@ -116,7 +118,7 @@ app.get('/', (req, res) => {
 app.post('/chat', async (req, res) => {
   const msg = req.body.message;
   try {
-    const result = await agentExecutor.invoke({ input: msg });
+    const result = await chatExecutor.invoke({ input: msg });
     const aiResponse =
       result?.output ||
       result?.returnValues?.output ||
@@ -124,7 +126,10 @@ app.post('/chat', async (req, res) => {
         ? result.messages[result.messages.length - 1].content
         : "응답 실패");
 
-    conversationHistory.push({ role: 'assistant', content: aiResponse });
+    // ✅ 서버는 Memory만 신뢰, conversationHistory는 로그용
+    if (!conversationHistory.length || conversationHistory[conversationHistory.length - 1].content !== aiResponse) {
+      conversationHistory.push({ role: 'assistant', content: aiResponse });
+    }
     if (conversationHistory.length > 30) conversationHistory.shift();
 
     await saveHistory();
@@ -132,6 +137,17 @@ app.post('/chat', async (req, res) => {
   } catch (err) {
     console.error('대화 처리 중 오류 발생:', err.message);
     res.status(500).json({ error: '대화 처리 중 오류 발생', detail: err.message });
+  }
+});
+
+// --- 검색 ---
+app.post('/search', async (req, res) => {
+  try {
+    const { query } = req.body;
+    const result = await googleSearchTool.invoke(query);
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: "검색 실패", detail: err.message });
   }
 });
 
@@ -155,7 +171,7 @@ app.post('/deploy', async (req, res) => {
 // --- Make 시나리오 실행 ---
 app.post('/make/run', async (req, res) => {
   try {
-    const { hookUrl, payload } = req.body; // ✅ Webhook 방식
+    const { hookUrl, payload } = req.body;
     if (!hookUrl) throw new Error("hookUrl 누락");
     const resp = await axios.post(hookUrl, payload || {});
     res.json({ ok: true, result: resp.data });
@@ -296,7 +312,7 @@ process.on("unhandledRejection", reason => console.error("❌ Unhandled:", reaso
 // ===== 서버 시작 =====
 const PORT = process.env.PORT || 3000;
 (async () => {
-  await initializeAgent();
+  await initializeChatAgent();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.3 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.4 실행 중: 포트 ${PORT}`));
 })();
