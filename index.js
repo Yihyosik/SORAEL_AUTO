@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.0 (완성본 고정판)
+// index.js — Soraiel v5.0 (최종 완성판)
 // =======================
 require('dotenv').config();
 const fs = require('fs');
@@ -31,6 +31,9 @@ const { BufferMemory } = require('langchain/memory');
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// 💡 수정된 부분: 정적 파일 서빙을 위한 설정
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== 대화 기록 =====
 const HISTORY_FILE = path.join(__dirname, 'history.json');
@@ -90,7 +93,7 @@ crmDB.serialize(() => {
 
 // 💡 수정된 부분: 루트 경로에 대한 GET 요청 처리
 app.get('/', (req, res) => {
-  res.send('<h1>Soraiel API Server</h1><p>Soraiel v5.0 is running perfectly. Use the chat API to communicate.</p>');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // --- 대화 ---
