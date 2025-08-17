@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.4 (최종 안정화 완전판)
+// index.js — Soraiel v5.5 (최종 안정화 완전판)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -67,13 +67,13 @@ const chatPrompt = ChatPromptTemplate.fromMessages([
 ]);
 const memory = new BufferMemory({ returnMessages: true, memoryKey: "chat_history" });
 
-// ===== 대화용 Agent (검색 미포함) =====
+// ===== 대화용 Agent (검색 제외, 대화 우선) =====
 let chatExecutor;
 async function initializeChatAgent() {
   chatExecutor = await initializeAgentExecutorWithOptions(
     [],
     llm,
-    { agentType: "chat-conversational-react-description", verbose: true, prompt: chatPrompt, memory }
+    { agentType: "chat-conversational-react", verbose: true, prompt: chatPrompt, memory }
   );
   console.log("✅ 소라엘 Chat executor initialized");
 }
@@ -126,7 +126,7 @@ app.post('/chat', async (req, res) => {
         ? result.messages[result.messages.length - 1].content
         : "응답 실패");
 
-    // ✅ 서버는 Memory만 신뢰, conversationHistory는 로그용
+    // ✅ Memory만 신뢰, conversationHistory는 로그용 (중복 방지)
     if (!conversationHistory.length || conversationHistory[conversationHistory.length - 1].content !== aiResponse) {
       conversationHistory.push({ role: 'assistant', content: aiResponse });
     }
@@ -168,7 +168,7 @@ app.post('/deploy', async (req, res) => {
   }
 });
 
-// --- Make 시나리오 실행 ---
+// --- Make 실행 (Webhook) ---
 app.post('/make/run', async (req, res) => {
   try {
     const { hookUrl, payload } = req.body;
@@ -180,7 +180,7 @@ app.post('/make/run', async (req, res) => {
   }
 });
 
-// --- 장기기억 (Supabase) ---
+// --- Supabase 메모리 ---
 app.post('/memory/import', async (req, res) => {
   try {
     const { records } = req.body;
@@ -264,7 +264,7 @@ app.post('/orchestrate', async (req, res) => {
   res.json(plan);
 });
 
-// --- 전자책 모듈 ---
+// --- 전자책 ---
 app.post('/ebook', async (req, res) => {
   const { title, content } = req.body;
   const file = `ebook_${Date.now()}.md`;
@@ -272,7 +272,7 @@ app.post('/ebook', async (req, res) => {
   res.json({ ok: true, file });
 });
 
-// --- 동영상 모듈 ---
+// --- 동영상 ---
 app.post('/video', (req, res) => {
   const input = req.body.input || "input.mp4";
   const output = `output_${Date.now()}.mp4`;
@@ -283,7 +283,7 @@ app.post('/video', (req, res) => {
   });
 });
 
-// --- CRM 모듈 ---
+// --- CRM ---
 app.post('/crm/add', async (req, res) => {
   try {
     const { name, email } = req.body;
@@ -314,5 +314,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatAgent();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.4 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.5 실행 중: 포트 ${PORT}`));
 })();
