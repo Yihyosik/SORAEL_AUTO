@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.7b (최종 안정화 완성본)
+// index.js — Soraiel v5.7c (최종 안정화 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -125,7 +125,7 @@ app.post('/chat', async (req, res) => {
     const result = await chatChain.call({ input: msg });
     const aiResponse = result?.text?.trim() || "응답 실패";
 
-    // ✅ Memory가 전부 관리 → 여기서는 로그만 남김
+    // ✅ Memory가 전부 관리 → 여기선 로그만 저장
     conversationHistory.push({ role: 'user', content: msg });
     conversationHistory.push({ role: 'assistant', content: aiResponse });
     if (conversationHistory.length > 30) {
@@ -314,5 +314,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7b 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7c 실행 중: 포트 ${PORT}`));
 })();
