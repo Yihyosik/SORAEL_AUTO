@@ -136,12 +136,27 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// --- 대화 (중복 제거 완료) ---
+// --- 대화 (수정 완료: 중복/짤림 제거) ---
 app.post('/chat', async (req, res) => {
   try {
-    const result = await chatChain.call({ input: req.body.message });
-    const aiResponse = result?.text?.trim() || "응답 실패";
-    res.json({ response: aiResponse }); // ✅ 응답만 반환
+    const userMessage = req.body.message;
+
+    // LangChain 대신 직접 호출하여 memory 꼬임 방지
+    const response = await llm.invoke([
+      new SystemMessage(SORAIEL_IDENTITY),
+      { role: "user", content: userMessage }
+    ]);
+
+    const aiResponse =
+      (typeof response.content === "string" ? response.content : "")?.trim?.() ||
+      response?.text?.trim?.() ||
+      "응답 실패";
+
+    // 로그용 history.json 저장
+    conversationHistory.push({ user: userMessage, ai: aiResponse });
+    await saveHistory();
+
+    res.json({ response: aiResponse });
   } catch (err) {
     console.error('대화 처리 중 오류:', err);
     res.status(500).json({ error: '대화 처리 중 오류 발생', detail: err.message });
