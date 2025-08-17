@@ -371,169 +371,163 @@
     </div>
   </div>
 
-  <script>
-    const chat = document.getElementById('chat');
-    const chatContainer = document.getElementById('chatContainer');
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.getElementById('sendButton');
+<script>
+    const chat = document.getElementById('chat');
+    const chatContainer = document.getElementById('chatContainer');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
 
-    // 대화 기록을 저장할 배열
-    let chatHistory = [];
+    function adjustTextareaHeight() {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+        sendButton.disabled = !messageInput.value.trim();
+    }
+    
+    function addMessage(text, isUser = false) {
+        const messageGroup = document.createElement('div');
+        messageGroup.className = 'message-group';
+        
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const avatar = document.createElement('div');
+        avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`;
+        avatar.textContent = isUser ? 'U' : 'S';
+        
+        const senderName = document.createElement('span');
+        senderName.className = 'sender-name';
+        senderName.textContent = isUser ? 'You' : 'Soraiel';
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(senderName);
+        
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        
+        const messageText = document.createElement('div');
+        messageText.className = 'message-text';
+        messageText.textContent = text;
+        
+        messageContent.appendChild(messageText);
+        messageGroup.appendChild(messageHeader);
+        messageGroup.appendChild(messageContent);
+        
+        chat.appendChild(messageGroup);
+        scrollToBottom();
+    }
+    
+    function showTypingIndicator() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'typing-indicator';
+        typingDiv.id = 'typing';
+        
+        const botAvatar = document.createElement('div');
+        botAvatar.className = 'avatar bot-avatar';
+        botAvatar.textContent = 'S';
+        
+        const textSpan = document.createElement('span');
+        textSpan.textContent = 'Soraiel이 입력 중';
+        
+        const typingDots = document.createElement('div');
+        typingDots.className = 'typing-dots';
+        for (let i = 0; i < 3; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'typing-dot';
+            typingDots.appendChild(dot);
+        }
+        
+        typingDiv.appendChild(botAvatar);
+        typingDiv.appendChild(textSpan);
+        typingDiv.appendChild(typingDots);
+        
+        chat.appendChild(typingDiv);
+        scrollToBottom();
+    }
+    
+    function hideTypingIndicator() {
+        const typing = document.getElementById('typing');
+        if (typing) {
+            typing.remove();
+        }
+    }
+    
+    function scrollToBottom() {
+        chatContainer.scrollTo({
+            top: chatContainer.scrollHeight,
+            behavior: 'smooth'
+        });
+    }
 
-    function adjustTextareaHeight() {
-      messageInput.style.height = 'auto';
-      messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
-      sendButton.disabled = !messageInput.value.trim();
-    }
-    
-    function addMessage(text, isUser = false) {
-      const messageGroup = document.createElement('div');
-      messageGroup.className = 'message-group';
-      
-      const messageHeader = document.createElement('div');
-      messageHeader.className = 'message-header';
-      
-      const avatar = document.createElement('div');
-      avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`;
-      avatar.textContent = isUser ? 'U' : 'S';
-      
-      const senderName = document.createElement('span');
-      senderName.className = 'sender-name';
-      senderName.textContent = isUser ? 'You' : 'Soraiel';
-      
-      messageHeader.appendChild(avatar);
-      messageHeader.appendChild(senderName);
-      
-      const messageContent = document.createElement('div');
-      messageContent.className = 'message-content';
-      
-      const messageText = document.createElement('div');
-      messageText.className = 'message-text';
-      messageText.textContent = text;
-      
-      messageContent.appendChild(messageText);
-      messageGroup.appendChild(messageHeader);
-      messageGroup.appendChild(messageContent);
-      
-      chat.appendChild(messageGroup);
-      scrollToBottom();
-    }
-    
-    function showTypingIndicator() {
-      const typingDiv = document.createElement('div');
-      typingDiv.className = 'typing-indicator';
-      typingDiv.id = 'typing';
-      
-      const botAvatar = document.createElement('div');
-      botAvatar.className = 'avatar bot-avatar';
-      botAvatar.textContent = 'S';
-      
-      const textSpan = document.createElement('span');
-      textSpan.textContent = 'Soraiel이 입력 중';
-      
-      const typingDots = document.createElement('div');
-      typingDots.className = 'typing-dots';
-      for (let i = 0; i < 3; i++) {
-        const dot = document.createElement('div');
-        dot.className = 'typing-dot';
-        typingDots.appendChild(dot);
-      }
-      
-      typingDiv.appendChild(botAvatar);
-      typingDiv.appendChild(textSpan);
-      typingDiv.appendChild(typingDots);
-      
-      chat.appendChild(typingDiv);
-      scrollToBottom();
-    }
-    
-    function hideTypingIndicator() {
-      const typing = document.getElementById('typing');
-      if (typing) {
-        typing.remove();
-      }
-    }
-    
-    function scrollToBottom() {
-      chatContainer.scrollTo({
-        top: chatContainer.scrollHeight,
-        behavior: 'smooth'
-      });
-    }
+    async function sendMessage() {
+        const userMessage = messageInput.value.trim();
+        if (!userMessage) return;
 
-    async function sendMessage() {
-      const userMessage = messageInput.value.trim();
-      if (!userMessage) return;
+        // 1. 사용자 메시지 화면에 추가
+        addMessage(userMessage, true);
+        
+        // 2. 입력창 비우기
+        messageInput.value = '';
+        adjustTextareaHeight();
+        
+        // 3. 로딩 인디케이터 표시
+        showTypingIndicator();
+        
+        // 4. AI 응답 생성 (API 호출)
+        try {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: userMessage })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || '서버 응답 오류');
+            }
 
-      // 1. 사용자 메시지 화면에 추가 및 기록
-      addMessage(userMessage, true);
-      chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
-      
-      messageInput.value = '';
-      adjustTextareaHeight();
-      
-      // 2. 로딩 인디케이터 표시
-      showTypingIndicator();
-      
-      // 3. AI 응답 생성 (API 호출)
-      try {
-        const payload = { contents: chatHistory };
-        const apiKey = "";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-        
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        
-        const result = await response.json();
-        
-        // 4. 로딩 인디케이터 숨기기
-        hideTypingIndicator();
-        
-        if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
-          const botResponse = result.candidates[0].content.parts[0].text;
-          addMessage(botResponse, false);
-          chatHistory.push({ role: "model", parts: [{ text: botResponse }] });
-        } else {
-          throw new Error('AI 응답이 올바르지 않습니다.');
-        }
-      } catch (error) {
-        console.error('Error during chat:', error);
-        hideTypingIndicator();
-        addMessage('오류가 발생했습니다. AI 응답을 가져올 수 없습니다.', false);
-      }
-    }
+            const result = await response.json();
+            
+            // 5. 로딩 인디케이터 숨기기
+            hideTypingIndicator();
+            
+            // 6. AI 응답 화면에 추가
+            const botResponse = result.response;
+            addMessage(botResponse, false);
 
-    sendButton.addEventListener('click', sendMessage);
+        } catch (error) {
+            console.error('Error during chat:', error);
+            hideTypingIndicator();
+            addMessage('오류가 발생했습니다. AI 응답을 가져올 수 없습니다.', false);
+        }
+    }
 
-    messageInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    });
-    
-    messageInput.addEventListener('input', adjustTextareaHeight);
+    sendButton.addEventListener('click', sendMessage);
 
-    if (window.visualViewport) {
-      const initialHeight = window.visualViewport.height;
-      window.visualViewport.addEventListener('resize', () => {
-        const viewportHeight = window.visualViewport.height;
-        if (viewportHeight < initialHeight) {
-          chatContainer.style.height = `${viewportHeight - (document.body.clientHeight - chatContainer.offsetHeight)}px`;
-        } else {
-          chatContainer.style.height = '100%'; 
-        }
-        scrollToBottom();
-      });
-    }
+    messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    messageInput.addEventListener('input', adjustTextareaHeight);
 
-    adjustTextareaHeight();
-    window.addEventListener('load', scrollToBottom);
+    if (window.visualViewport) {
+        const initialHeight = window.visualViewport.height;
+        window.visualViewport.addEventListener('resize', () => {
+            const viewportHeight = window.visualViewport.height;
+            if (viewportHeight < initialHeight) {
+                chatContainer.style.height = `${viewportHeight - (document.body.clientHeight - chatContainer.offsetHeight)}px`;
+            } else {
+                chatContainer.style.height = '100%'; 
+            }
+            scrollToBottom();
+        });
+    }
 
-  </script>
+    adjustTextareaHeight();
+    window.addEventListener('load', scrollToBottom);
+</script>
 
 </body>
 </html>
