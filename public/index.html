@@ -1,533 +1,317 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Soraiel Chat</title>
-  <style>
-    :root {
-      --bg-primary: #F8F9FA;
-      --bg-secondary: #FFFFFF;
-      --bg-user: #F8F9FA;
-      --bg-assistant: #FFFFFF;
-      --text-primary: #1F1F1F;
-      --text-secondary: #656B73;
-      --border-light: #E6E8EB;
-      --accent-orange: #D97706;
-      --accent-blue: #0066CC;
-      --shadow-light: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    * {
-      box-sizing: border-box;
-    }
+// =======================
+// index.js — Soraiel v5.7 (최종 안정화 완성본)
+// =======================
+require('dotenv').config();
+const fs = require('fs/promises');
+const path = require('path');
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const sqlite3 = require('sqlite3').verbose();
+const { exec } = require('child_process');
 
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-      font-size: 15px;
-      line-height: 1.6;
-    }
-    
-    body {
-      display: flex;
-      flex-direction: column;
-    }
+const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
+const RENDER_KEY = process.env.RENDER_KEY || '';
+const MAKE_API_KEY = process.env.MAKE_API_KEY || '';
 
-    /* 상단 헤더 - Claude 스타일 */
-    .header {
-      background-color: var(--bg-secondary);
-      border-bottom: 1px solid var(--border-light);
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      box-shadow: var(--shadow-light);
-    }
-    
-    .header-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .header-icon {
-      width: 20px;
-      height: 20px;
-      background: linear-gradient(135deg, var(--accent-orange), #F59E0B);
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 12px;
-      font-weight: bold;
-    }
-    
-    /* 채팅 영역 */
-    .chat-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0;
-      background-color: var(--bg-primary);
-    }
-    
-    .chat {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 32px;
-    }
-    
-    /* 메시지 스타일 */
-    .message-group {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    
-    .message-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    
-    .avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 600;
-      flex-shrink: 0;
-    }
-    
-    .user-avatar {
-      background: var(--accent-blue);
-      color: white;
-    }
-    
-    .bot-avatar {
-      background: linear-gradient(135deg, var(--accent-orange), #F59E0B);
-      color: white;
-    }
-    
-    .sender-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    
-    .message-content {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border-light);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-left: 36px;
-      box-shadow: var(--shadow-light);
-      position: relative;
-    }
-    
-    .message-content::before {
-      content: '';
-      position: absolute;
-      left: -37px;
-      top: 12px;
-      width: 0;
-      height: 0;
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
-      border-right: 6px solid var(--border-light);
-    }
-    
-    .message-content::after {
-      content: '';
-      position: absolute;
-      left: -36px;
-      top: 12px;
-      width: 0;
-      height: 0;
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
-      border-right: 6px solid var(--bg-secondary);
-    }
-    
-    .message-text {
-      color: var(--text-primary);
-      word-wrap: break-word;
-      white-space: pre-wrap;
-    }
-    
-    /* 입력 영역 */
-    .input-container {
-      background-color: var(--bg-secondary);
-      border-top: 1px solid var(--border-light);
-      padding: 16px 20px;
-      padding-bottom: calc(16px + env(safe-area-inset-bottom));
-      flex-shrink: 0;
-    }
-    
-    .input-wrapper {
-      max-width: 800px;
-      margin: 0 auto;
-      position: relative;
-    }
-    
-    .input-bar {
-      display: flex;
-      align-items: flex-end;
-      gap: 12px;
-      background-color: var(--bg-primary);
-      border: 2px solid var(--border-light);
-      border-radius: 24px;
-      padding: 8px;
-      transition: border-color 0.2s ease;
-    }
-    
-    .input-bar:focus-within {
-      border-color: var(--accent-orange);
-    }
-    
-    .input-bar textarea {
-      flex: 1;
-      border: none;
-      background: transparent;
-      color: var(--text-primary);
-      font-size: 15px;
-      font-family: inherit;
-      line-height: 1.4;
-      resize: none;
-      outline: none;
-      padding: 8px 12px;
-      max-height: 120px;
-      min-height: 24px;
-    }
-    
-    .input-bar textarea::placeholder {
-      color: var(--text-secondary);
-    }
-    
-    .send-button {
-      width: 32px;
-      height: 32px;
-      border: none;
-      border-radius: 50%;
-      background: var(--accent-orange);
-      color: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      transition: all 0.2s ease;
-      flex-shrink: 0;
-    }
-    
-    .send-button:hover {
-      background: #B45309;
-      transform: scale(1.05);
-    }
-    
-    .send-button:disabled {
-      background: var(--text-secondary);
-      cursor: not-allowed;
-      transform: none;
-    }
-    
-    /* 로딩 인디케이터 */
-    .typing-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: 36px;
-      padding: 12px 20px;
-      color: var(--text-secondary);
-      font-size: 14px;
-    }
-    
-    .typing-dots {
-      display: flex;
-      gap: 4px;
-    }
-    
-    .typing-dot {
-      width: 4px;
-      height: 4px;
-      background-color: var(--accent-orange);
-      border-radius: 50%;
-      animation: typing-pulse 1.4s infinite ease-in-out;
-    }
-    
-    .typing-dot:nth-child(2) {
-      animation-delay: 0.2s;
-    }
-    
-    .typing-dot:nth-child(3) {
-      animation-delay: 0.4s;
-    }
-    
-    @keyframes typing-pulse {
-      0%, 80%, 100% {
-        opacity: 0.3;
-        transform: scale(0.8);
-      }
-      40% {
-        opacity: 1;
-        transform: scale(1);
-      }
-    }
-    
-    /* 반응형 대응 */
-    @media (max-width: 768px) {
-      .chat {
-        padding: 16px;
-        gap: 24px;
-      }
-      
-      .header {
-        padding: 12px 16px;
-      }
-      
-      .input-container {
-        padding: 12px 16px;
-        padding-bottom: calc(12px + env(safe-area-inset-bottom));
-      }
-      
-      .message-content {
-        margin-left: 36px;
-        padding: 14px 16px;
-      }
-    }
-    
-    /* 스크롤바 스타일 */
-    .chat-container::-webkit-scrollbar {
-      width: 6px;
-    }
-    
-    .chat-container::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    
-    .chat-container::-webkit-scrollbar-thumb {
-      background: var(--border-light);
-      border-radius: 3px;
-    }
-    
-    .chat-container::-webkit-scrollbar-thumb:hover {
-      background: var(--text-secondary);
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="header-title">
-      <div class="header-icon">S</div>
-      Soraiel
-    </div>
-  </div>
+if (!OPENAI_API_KEY_CONST) {
+  console.error('❌ OPENAI_API_KEY 없음');
+  process.exit(1);
+}
 
-  <div class="chat-container" id="chatContainer">
-    <div class="chat" id="chat">
-      <div class="message-group">
-        <div class="message-header">
-          <div class="avatar bot-avatar">S</div>
-          <span class="sender-name">Soraiel</span>
-        </div>
-        <div class="message-content">
-          <div class="message-text">안녕하세요, 저는 Soraiel입니다. 무엇을 도와드릴까요?</div>
-        </div>
-      </div>
-    </div>
-  </div>
+const { ChatOpenAI } = require('@langchain/openai');
+const { LLMChain } = require('langchain/chains');
+const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
+const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
+const { SystemMessage } = require('@langchain/core/messages');
+const { BufferMemory } = require('langchain/memory');
 
-  <div class="input-container">
-    <div class="input-wrapper">
-      <div class="input-bar">
-        <textarea 
-          id="messageInput" 
-          placeholder="메시지를 입력하세요..."
-          rows="1"
-        ></textarea>
-        <button class="send-button" id="sendButton">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M15.854 7.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708-.708L14.293 8.5H.5a.5.5 0 0 1 0-1h13.793L8.146 1.354a.5.5 0 0 1 .708-.708l7 7z"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  </div>
+const app = express();
+app.use(express.json());
+app.use(cors());
 
-<script>
-    const chat = document.getElementById('chat');
-    const chatContainer = document.getElementById('chatContainer');
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.getElementById('sendButton');
+// HTML 서빙
+app.use(express.static(path.join(__dirname, 'public')));
 
-    function adjustTextareaHeight() {
-        messageInput.style.height = 'auto';
-        messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
-        sendButton.disabled = !messageInput.value.trim();
+// ===== 대화 기록 =====
+const HISTORY_FILE = path.join(__dirname, 'history.json');
+let conversationHistory = [];
+async function loadHistory() {
+  try {
+    const data = await fs.readFile(HISTORY_FILE, 'utf-8');
+    conversationHistory = JSON.parse(data);
+  } catch {}
+}
+async function saveHistory() {
+  await fs.writeFile(HISTORY_FILE, JSON.stringify(conversationHistory, null, 2));
+}
+
+// ===== 프롬프트 =====
+const SORAIEL_IDENTITY = `
+당신은 "소라엘"이라는 이름의 AI 비서입니다.
+실무형·정확·단호한 어조를 유지합니다.
+정확하지 않은 정보는 반드시 "없다"고 말합니다.
+불필요한 접두사·군더더기 표현은 제거합니다.
+`;
+
+const llm = new ChatOpenAI({
+  apiKey: OPENAI_API_KEY_CONST,
+  temperature: 0.4,
+  modelName: 'gpt-4o-mini'
+});
+
+const chatPrompt = ChatPromptTemplate.fromMessages([
+  new SystemMessage(SORAIEL_IDENTITY),
+  new MessagesPlaceholder("chat_history"),
+]);
+
+const memory = new BufferMemory({
+  returnMessages: true,
+  memoryKey: "chat_history"
+});
+
+// ===== LLMChain 기반 대화 실행기 =====
+let chatChain;
+async function initializeChatChain() {
+  chatChain = new LLMChain({
+    llm,
+    prompt: chatPrompt,
+    memory
+  });
+  console.log("✅ 소라엘 ChatChain initialized");
+}
+
+// ===== 검색 전용 Tool =====
+const googleSearchTool = new GoogleCustomSearch();
+
+// ===== Registry & Vault =====
+let registry = {};
+let vault = {};
+if (MAKE_API_KEY) vault.MAKE_API_KEY = MAKE_API_KEY;
+async function logRun(planId, content) {
+  await fs.writeFile(`runs_${planId}.json`, JSON.stringify(content, null, 2));
+}
+
+// ===== CRM (sqlite) =====
+const crmDB = new sqlite3.Database('./crm.db');
+crmDB.serialize(() => {
+  crmDB.run("CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT)");
+});
+const dbRun = (sql, params) => new Promise((resolve, reject) => {
+  crmDB.run(sql, params, function(err) {
+    if (err) reject(err);
+    else resolve(this);
+  });
+});
+const dbAll = (sql, params) => new Promise((resolve, reject) => {
+  crmDB.all(sql, params, (err, rows) => {
+    if (err) reject(err);
+    else resolve(rows);
+  });
+});
+
+// ===== API =====
+
+// HTML 기본 페이지
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// --- 대화 ---
+app.post('/chat', async (req, res) => {
+  const msg = req.body.message;
+  try {
+    const result = await chatChain.call({ input: msg });
+    const aiResponse = result?.text?.trim() || "응답 실패";
+
+    // ✅ Memory가 기록 관리, 여기선 로그만 남김 (중복 제거)
+    conversationHistory.push({ role: 'user', content: msg });
+    conversationHistory.push({ role: 'assistant', content: aiResponse });
+    if (conversationHistory.length > 30) conversationHistory.splice(0, conversationHistory.length - 30);
+
+    await saveHistory();
+    res.json({ response: aiResponse });
+  } catch (err) {
+    console.error('대화 처리 중 오류 발생:', err.message);
+    res.status(500).json({ error: '대화 처리 중 오류 발생', detail: err.message });
+  }
+});
+
+// --- 검색 ---
+app.post('/search', async (req, res) => {
+  try {
+    const { query } = req.body;
+    const result = await googleSearchTool.invoke(query);
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: "검색 실패", detail: err.message });
+  }
+});
+
+// --- Render 배포 ---
+app.post('/deploy', async (req, res) => {
+  const { deploy_target } = req.body || {};
+  const planId = Date.now().toString();
+  try {
+    if (deploy_target?.type === 'render') {
+      await axios.post('https://api.render.com/deploy', { serviceId: deploy_target.serviceId }, {
+        headers: { Authorization: `Bearer ${RENDER_KEY}` }
+      }).catch(()=>{});
     }
-    
-    function addMessage(text, isUser = false) {
-        const messageGroup = document.createElement('div');
-        messageGroup.className = 'message-group';
-        
-        const messageHeader = document.createElement('div');
-        messageHeader.className = 'message-header';
-        
-        const avatar = document.createElement('div');
-        avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`;
-        avatar.textContent = isUser ? 'U' : 'S';
-        
-        const senderName = document.createElement('span');
-        senderName.className = 'sender-name';
-        senderName.textContent = isUser ? 'You' : 'Soraiel';
-        
-        messageHeader.appendChild(avatar);
-        messageHeader.appendChild(senderName);
-        
-        const messageContent = document.createElement('div');
-        messageContent.className = 'message-content';
-        
-        const messageText = document.createElement('div');
-        messageText.className = 'message-text';
-        messageText.textContent = text;
-        
-        messageContent.appendChild(messageText);
-        messageGroup.appendChild(messageHeader);
-        messageGroup.appendChild(messageContent);
-        
-        chat.appendChild(messageGroup);
-        scrollToBottom();
-    }
-    
-    function showTypingIndicator() {
-        const typingDiv = document.createElement('div');
-        typingDiv.className = 'typing-indicator';
-        typingDiv.id = 'typing';
-        
-        const botAvatar = document.createElement('div');
-        botAvatar.className = 'avatar bot-avatar';
-        botAvatar.textContent = 'S';
-        
-        const textSpan = document.createElement('span');
-        textSpan.textContent = 'Soraiel이 입력 중';
-        
-        const typingDots = document.createElement('div');
-        typingDots.className = 'typing-dots';
-        for (let i = 0; i < 3; i++) {
-            const dot = document.createElement('div');
-            dot.className = 'typing-dot';
-            typingDots.appendChild(dot);
-        }
-        
-        typingDiv.appendChild(botAvatar);
-        typingDiv.appendChild(textSpan);
-        typingDiv.appendChild(typingDots);
-        
-        chat.appendChild(typingDiv);
-        scrollToBottom();
-    }
-    
-    function hideTypingIndicator() {
-        const typing = document.getElementById('typing');
-        if (typing) {
-            typing.remove();
-        }
-    }
-    
-    function scrollToBottom() {
-        chatContainer.scrollTo({
-            top: chatContainer.scrollHeight,
-            behavior: 'smooth'
-        });
-    }
+    await logRun(planId, { deploy_target });
+    res.json({ ok: true, updated: { deploy_target } });
+  } catch (err) {
+    res.status(500).json({ error: "deploy 실패", detail: err.message });
+  }
+});
 
-    async function sendMessage() {
-        const userMessage = messageInput.value.trim();
-        if (!userMessage) return;
+// --- Make 실행 (Webhook) ---
+app.post('/make/run', async (req, res) => {
+  try {
+    const { hookUrl, payload } = req.body;
+    if (!hookUrl) throw new Error("hookUrl 누락");
+    const resp = await axios.post(hookUrl, payload || {});
+    res.json({ ok: true, result: resp.data });
+  } catch (err) {
+    res.status(500).json({ error: "Make 실행 실패", detail: err.message });
+  }
+});
 
-        // 1. 사용자 메시지 화면에 추가
-        addMessage(userMessage, true);
-        
-        // 2. 입력창 비우기
-        messageInput.value = '';
-        adjustTextareaHeight();
-        
-        // 3. 로딩 인디케이터 표시
-        showTypingIndicator();
-        
-        // 4. AI 응답 생성 (API 호출)
-        try {
-            const response = await fetch('/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: userMessage })
-            });
-            
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || '서버 응답 오류');
-            }
-
-            const result = await response.json();
-            
-            // 5. 로딩 인디케이터 숨기기
-            hideTypingIndicator();
-            
-            // 6. AI 응답 화면에 추가
-            const botResponse = result.response;
-            addMessage(botResponse, false);
-
-        } catch (error) {
-            console.error('Error during chat:', error);
-            hideTypingIndicator();
-            addMessage('오류가 발생했습니다. AI 응답을 가져올 수 없습니다.', false);
-        }
-    }
-
-    sendButton.addEventListener('click', sendMessage);
-
-    messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
+// --- Supabase 메모리 ---
+app.post('/memory/import', async (req, res) => {
+  try {
+    const { records } = req.body;
+    await axios.post(`${SUPABASE_URL}/rest/v1/memory`, records, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: "return=minimal" }
     });
-    
-    messageInput.addEventListener('input', adjustTextareaHeight);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "memory import 실패", detail: err.message });
+  }
+});
+app.post('/memory/search', async (req, res) => {
+  try {
+    const { query } = req.body;
+    const { data } = await axios.post(`${SUPABASE_URL}/rest/v1/rpc/search_memory`, { query }, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    res.json({ results: data });
+  } catch (err) {
+    res.status(500).json({ error: "memory search 실패", detail: err.message });
+  }
+});
 
-    if (window.visualViewport) {
-        const initialHeight = window.visualViewport.height;
-        window.visualViewport.addEventListener('resize', () => {
-            const viewportHeight = window.visualViewport.height;
-            if (viewportHeight < initialHeight) {
-                chatContainer.style.height = `${viewportHeight - (document.body.clientHeight - chatContainer.offsetHeight)}px`;
-            } else {
-                chatContainer.style.height = '100%'; 
-            }
-            scrollToBottom();
-        });
-    }
+// --- 계획 (/build) ---
+app.post('/build', async (req, res) => {
+  const instruction = req.body.instruction || "";
+  const planId = Date.now().toString();
+  const plan = {
+    planId,
+    steps: [
+      { tool: "generate_image", args: { prompt: instruction }, saveAs: "image" },
+      { tool: "write_blog", args: { topic: instruction }, saveAs: "blog" }
+    ]
+  };
+  await logRun(planId, plan);
+  res.json(plan);
+});
 
-    adjustTextareaHeight();
-    window.addEventListener('load', scrollToBottom);
-</script>
+// --- 실행 (/run) ---
+app.post('/run', async (req, res) => {
+  try {
+    const topic = req.body.topic || "제목 없음";
+    const imagePrompt = req.body.prompt || topic;
+    const imgResp = await axios.post("https://api.openai.com/v1/images/generations", {
+      prompt: imagePrompt,
+      model: "gpt-image-1",
+      size: "512x512"
+    }, {
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY_CONST}` }
+    });
+    const image_url = imgResp.data?.data?.[0]?.url;
 
-</body>
-</html>
+    const blogResp = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "주어진 주제로 블로그 글을 작성하라. 한국어, 실무형, 단호." },
+        { role: "user", content: topic }
+      ]
+    }, {
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY_CONST}` }
+    });
+    const blog_post = blogResp.data?.choices?.[0]?.message?.content;
+    res.json({ image_url, blog_post });
+  } catch (err) {
+    res.status(500).json({ error: "실행 실패", detail: err.message });
+  }
+});
+
+// --- 두뇌 (/orchestrate) ---
+app.post('/orchestrate', async (req, res) => {
+  const { goal = "" } = req.body;
+  const planId = Date.now().toString();
+  const plan = {
+    planId,
+    steps: [
+      { tool: "llm.generate", args: { prompt: goal }, saveAs: "text" },
+      { tool: "http.fetch", args: { url: "https://example.com" }, saveAs: "data" }
+    ]
+  };
+  await logRun(planId, plan);
+  res.json(plan);
+});
+
+// --- 전자책 ---
+app.post('/ebook', async (req, res) => {
+  const { title, content } = req.body;
+  const file = `ebook_${Date.now()}.md`;
+  await fs.writeFile(file, `# ${title}\n\n${content}`);
+  res.json({ ok: true, file });
+});
+
+// --- 동영상 ---
+app.post('/video', (req, res) => {
+  const input = req.body.input || "input.mp4";
+  const output = `output_${Date.now()}.mp4`;
+  const cmd = `ffmpeg -i ${input} -t 10 -c copy ${output}`;
+  exec(cmd, (err) => {
+    if (err) return res.status(500).json({ error: "영상 처리 실패", detail: err.message });
+    res.json({ ok: true, file: output });
+  });
+});
+
+// --- CRM ---
+app.post('/crm/add', async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const result = await dbRun("INSERT INTO customers (name, email) VALUES (?, ?)", [name, email]);
+    res.json({ ok: true, id: result.lastID });
+  } catch (err) {
+    res.status(500).json({ error: "추가 실패" });
+  }
+});
+app.get('/crm/list', async (req, res) => {
+  try {
+    const rows = await dbAll("SELECT * FROM customers", []);
+    res.json({ customers: rows });
+  } catch (err) {
+    res.status(500).json({ error: "조회 실패" });
+  }
+});
+
+// --- Health ---
+app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+// ===== 에러 핸들링 =====
+process.on("uncaughtException", err => console.error("❌ Uncaught:", err));
+process.on("unhandledRejection", reason => console.error("❌ Unhandled:", reason));
+
+// ===== 서버 시작 =====
+const PORT = process.env.PORT || 3000;
+(async () => {
+  await initializeChatChain();
+  await loadHistory();
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7 실행 중: 포트 ${PORT}`));
+})();
