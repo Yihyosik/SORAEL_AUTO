@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.7h (최종 안정화 완성본)
+// index.js — Soraiel v5.7h (최종 안정화 완성본, ChatPromptTemplate 수정 포함)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -31,8 +31,11 @@ if (!OPENAI_API_KEY_CONST) {
 }
 
 const { ChatOpenAI } = require('@langchain/openai');
+const { LLMChain } = require('langchain/chains');
 const { GoogleCustomSearch } = require('@langchain/community/tools/google_custom_search');
+const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 const { SystemMessage } = require('@langchain/core/messages');
+const { BufferMemory } = require('langchain/memory');
 
 const app = express();
 app.use(express.json());
@@ -49,6 +52,7 @@ app.get('/', (_req, res) => {
 const HISTORY_FILE = path.join(__dirname, 'history.json');
 let conversationHistory = [];
 
+// 🔧 loadHistory 함수 복원
 async function loadHistory() {
   try {
     const data = await fs.readFile(HISTORY_FILE, 'utf-8');
@@ -79,6 +83,29 @@ const llm = new ChatOpenAI({
   temperature: 0.4,
   modelName: 'gpt-4o'
 });
+
+// 🟢 수정된 부분: input 변수를 명시적으로 추가
+const chatPrompt = ChatPromptTemplate.fromMessages([
+  new SystemMessage(SORAIEL_IDENTITY),
+  new MessagesPlaceholder("chat_history"),
+  ["human", "{input}"]   // ✅ 반드시 필요
+]);
+
+const memory = new BufferMemory({
+  returnMessages: true,
+  memoryKey: "chat_history"
+});
+
+// ===== LLMChain 기반 대화 실행기 =====
+let chatChain;
+async function initializeChatChain() {
+  chatChain = new LLMChain({
+    llm,
+    prompt: chatPrompt,
+    memory
+  });
+  console.log("✅ 소라엘 ChatChain initialized");
+}
 
 // ===== 검색 전용 Tool =====
 const googleSearchTool = new GoogleCustomSearch();
@@ -111,32 +138,11 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// --- 대화 (최종 수정: 중복/짤림 + 빈 입력 방어) ---
+// --- 대화 ---
 app.post('/chat', async (req, res) => {
   try {
-    const userMessage = (req.body.message || "").trim();
-
-    // ✅ 빈 입력이면 바로 무시 (응답 없이 종료)
-    if (!userMessage) {
-      return res.json({ response: "" });
-    }
-
-    const response = await llm.invoke([
-      new SystemMessage(SORAIEL_IDENTITY),
-      { role: "user", content: userMessage }
-    ]);
-
-    const aiResponse =
-      (typeof response.content === "string" ? response.content : "")?.trim?.() ||
-      response?.text?.trim?.() ||
-      "응답 실패";
-
-    conversationHistory.push({ user: userMessage, ai: aiResponse });
-    await saveHistory();
-
-    console.log("💬 사용자:", userMessage);
-    console.log("🤖 소라엘:", aiResponse);
-
+    const result = await chatChain.call({ input: req.body.message }); // ✅ 이제 에러 안 남
+    const aiResponse = result?.text?.trim() || "응답 실패";
     res.json({ response: aiResponse });
   } catch (err) {
     console.error('대화 처리 중 오류:', err);
@@ -335,6 +341,7 @@ process.on("unhandledRejection", reason => console.error("❌ Unhandled:", reaso
 // ===== 서버 시작 =====
 const PORT = process.env.PORT || 3000;
 (async () => {
+  await initializeChatChain();
   await loadHistory();
   app.listen(PORT, () => console.log(`🚀 Soraiel v5.7h 실행 중: 포트 ${PORT}`));
 })();
