@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.7e (최종 안정화 완성본)
+// index.js — Soraiel v5.7f (최종 안정화 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -16,7 +16,7 @@ const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').trim();
 const RENDER_KEY = (process.env.RENDER_KEY || '').trim();
 const MAKE_API_KEY = (process.env.MAKE_API_KEY || '').trim();
 
-// ===== 환경변수 체크 & 상태 로그 =====
+// ===== 환경변수 상태 출력 =====
 console.log("=== 🚀 환경변수 상태 체크 ===");
 console.log("OPENAI_API_KEY:", OPENAI_API_KEY_CONST ? "✅ Loaded" : "❌ Missing");
 console.log("SUPABASE_URL:", SUPABASE_URL ? "✅ Loaded" : "❌ Missing");
@@ -129,22 +129,14 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // --- 대화 ---
 app.post('/chat', async (req, res) => {
-  const msg = req.body.message;
   try {
-    const result = await chatChain.call({ input: msg });
+    const result = await chatChain.call({ input: req.body.message });
     const aiResponse = result?.text?.trim() || "응답 실패";
 
-    // ✅ Memory가 관리하므로 수동 push 없음 (중복 제거)
-    conversationHistory.push({ role: 'user', content: msg, ts: new Date().toISOString() });
-    conversationHistory.push({ role: 'assistant', content: aiResponse, ts: new Date().toISOString() });
-    if (conversationHistory.length > 30) {
-      conversationHistory.splice(0, conversationHistory.length - 30);
-    }
-    await saveHistory();
-
+    // 🚫 중복 제거: 서버는 Memory에만 맡기고 응답만 반환
     res.json({ response: aiResponse });
   } catch (err) {
-    console.error('대화 처리 중 오류 발생:', err.message);
+    console.error('대화 처리 중 오류:', err.message);
     res.status(500).json({ error: '대화 처리 중 오류 발생', detail: err.message });
   }
 });
@@ -185,7 +177,26 @@ app.post('/make/run', async (req, res) => {
     const resp = await axios.post(hookUrl, payload || {});
     res.json({ ok: true, result: resp.data });
   } catch (err) {
-    res.status(500).json({ error: "Make 실행 실패", detail: err.message });
+    res.status(500).json({ error: "Make Webhook 실행 실패", detail: err.message });
+  }
+});
+
+// --- Make 실행 (공식 API) ---
+app.post('/make/api/run', async (req, res) => {
+  try {
+    const { scenarioId, data } = req.body;
+    if (!MAKE_API_KEY) throw new Error("MAKE_API_KEY 없음");
+    if (!scenarioId) throw new Error("scenarioId 누락");
+
+    const resp = await axios.post(
+      `https://api.make.com/v2/scenarios/${scenarioId}/run`,
+      data || {},
+      { headers: { Authorization: `Token ${MAKE_API_KEY}` } }
+    );
+
+    res.json({ ok: true, result: resp.data });
+  } catch (err) {
+    res.status(500).json({ error: "Make API 실행 실패", detail: err.message });
   }
 });
 
@@ -323,5 +334,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7e 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7f 실행 중: 포트 ${PORT}`));
 })();
