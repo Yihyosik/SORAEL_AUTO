@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.7d (최종 안정화 완성본)
+// index.js — Soraiel v5.7e (최종 안정화 완성본)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -11,10 +11,19 @@ const sqlite3 = require('sqlite3').verbose();
 const { exec } = require('child_process');
 
 const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
-const RENDER_KEY = process.env.RENDER_KEY || '';
-const MAKE_API_KEY = process.env.MAKE_API_KEY || '';
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').trim();
+const RENDER_KEY = (process.env.RENDER_KEY || '').trim();
+const MAKE_API_KEY = (process.env.MAKE_API_KEY || '').trim();
+
+// ===== 환경변수 체크 & 상태 로그 =====
+console.log("=== 🚀 환경변수 상태 체크 ===");
+console.log("OPENAI_API_KEY:", OPENAI_API_KEY_CONST ? "✅ Loaded" : "❌ Missing");
+console.log("SUPABASE_URL:", SUPABASE_URL ? "✅ Loaded" : "❌ Missing");
+console.log("SUPABASE_KEY:", SUPABASE_KEY ? "✅ Loaded" : "❌ Missing");
+console.log("RENDER_KEY:", RENDER_KEY ? "✅ Loaded" : "❌ Missing");
+console.log("MAKE_API_KEY:", MAKE_API_KEY ? "✅ Loaded" : "❌ Missing");
+console.log("================================");
 
 if (!OPENAI_API_KEY_CONST) {
   console.error('❌ OPENAI_API_KEY 없음');
@@ -125,8 +134,7 @@ app.post('/chat', async (req, res) => {
     const result = await chatChain.call({ input: msg });
     const aiResponse = result?.text?.trim() || "응답 실패";
 
-    // 🚫 중복 원인 제거: 수동 push 제거, Memory에만 기록
-    // conversationHistory는 로그 저장용
+    // ✅ Memory가 관리하므로 수동 push 없음 (중복 제거)
     conversationHistory.push({ role: 'user', content: msg, ts: new Date().toISOString() });
     conversationHistory.push({ role: 'assistant', content: aiResponse, ts: new Date().toISOString() });
     if (conversationHistory.length > 30) {
@@ -315,5 +323,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7d 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.7e 실행 중: 포트 ${PORT}`));
 })();
