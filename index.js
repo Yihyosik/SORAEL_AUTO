@@ -88,6 +88,11 @@ crmDB.serialize(() => {
 
 // ===== API =====
 
+// 💡 수정된 부분: 루트 경로에 대한 GET 요청 처리
+app.get('/', (req, res) => {
+  res.send('<h1>Soraiel API Server</h1><p>Soraiel v5.0 is running perfectly. Use the chat API to communicate.</p>');
+});
+
 // --- 대화 ---
 app.post('/chat', async (req, res) => {
   const msg = req.body.message;
