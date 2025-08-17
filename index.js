@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v4.0 (완성본 고정판)
+// index.js — Soraiel v5.0 (완성본 고정판)
 // =======================
 require('dotenv').config();
 const fs = require('fs');
@@ -8,6 +8,8 @@ const express = require('express');
 const cors = require('cors');
 const vm = require('vm');
 const axios = require('axios');
+const sqlite3 = require('sqlite3').verbose();
+const { exec } = require('child_process');
 
 const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -34,9 +36,7 @@ app.use(cors());
 const HISTORY_FILE = path.join(__dirname, 'history.json');
 let conversationHistory = [];
 if (fs.existsSync(HISTORY_FILE)) {
-  try {
-    conversationHistory = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
-  } catch {}
+  try { conversationHistory = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8')); } catch {}
 }
 function saveHistory() {
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(conversationHistory, null, 2));
@@ -79,6 +79,12 @@ let vault = {};
 function logRun(planId, content) {
   fs.writeFileSync(`runs_${planId}.json`, JSON.stringify(content, null, 2));
 }
+
+// ===== CRM (sqlite) =====
+const crmDB = new sqlite3.Database('./crm.db');
+crmDB.serialize(() => {
+  crmDB.run("CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT)");
+});
 
 // ===== API =====
 
@@ -163,13 +169,12 @@ app.post('/build', (req, res) => {
   res.json(plan);
 });
 
-// --- 실행 (/run) 실제 OpenAI 호출 ---
+// --- 실행 (/run) OpenAI 호출 ---
 app.post('/run', async (req, res) => {
   try {
     const topic = req.body.topic || "제목 없음";
     const imagePrompt = req.body.prompt || topic;
 
-    // 이미지 생성 (OpenAI Images API)
     const imgResp = await axios.post("https://api.openai.com/v1/images/generations", {
       prompt: imagePrompt,
       model: "gpt-image-1",
@@ -177,10 +182,8 @@ app.post('/run', async (req, res) => {
     }, {
       headers: { Authorization: `Bearer ${OPENAI_API_KEY_CONST}` }
     });
-
     const image_url = imgResp.data.data[0].url;
 
-    // 블로그 글 생성 (Chat API)
     const blogResp = await axios.post("https://api.openai.com/v1/chat/completions", {
       model: "gpt-4o-mini",
       messages: [
@@ -190,7 +193,6 @@ app.post('/run', async (req, res) => {
     }, {
       headers: { Authorization: `Bearer ${OPENAI_API_KEY_CONST}` }
     });
-
     const blog_post = blogResp.data.choices[0].message.content;
 
     res.json({ image_url, blog_post });
@@ -214,18 +216,38 @@ app.post('/orchestrate', (req, res) => {
   res.json(plan);
 });
 
-// --- 우선 모듈 ---
+// --- 전자책 모듈 ---
 app.post('/ebook', (req, res) => {
   const { title, content } = req.body;
   const file = `ebook_${Date.now()}.md`;
   fs.writeFileSync(file, `# ${title}\n\n${content}`);
   res.json({ ok: true, file });
 });
+
+// --- 동영상 모듈 (ffmpeg 필요) ---
 app.post('/video', (req, res) => {
-  res.json({ ok: true, msg: "동영상 편집 모듈 실행 (데모)" });
+  const input = req.body.input || "input.mp4";
+  const output = `output_${Date.now()}.mp4`;
+  const cmd = `ffmpeg -i ${input} -t 10 -c copy ${output}`;
+  exec(cmd, (err) => {
+    if (err) return res.status(500).json({ error: "영상 처리 실패", detail: err.message });
+    res.json({ ok: true, file: output });
+  });
 });
-app.post('/crm', (req, res) => {
-  res.json({ ok: true, msg: "고객관리 모듈 실행 (데모)" });
+
+// --- CRM 모듈 (sqlite) ---
+app.post('/crm/add', (req, res) => {
+  const { name, email } = req.body;
+  crmDB.run("INSERT INTO customers (name, email) VALUES (?, ?)", [name, email], function(err) {
+    if (err) return res.status(500).json({ error: "추가 실패" });
+    res.json({ ok: true, id: this.lastID });
+  });
+});
+app.get('/crm/list', (req, res) => {
+  crmDB.all("SELECT * FROM customers", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: "조회 실패" });
+    res.json({ customers: rows });
+  });
 });
 
 // --- Health ---
@@ -239,5 +261,5 @@ process.on("unhandledRejection", reason => console.error("❌ Unhandled:", reaso
 const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeAgent();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v4.0 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.0 실행 중: 포트 ${PORT}`));
 })();
