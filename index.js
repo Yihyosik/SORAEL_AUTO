@@ -111,10 +111,15 @@ const dbAll = (sql, params) => new Promise((resolve, reject) => {
 
 // ===== API =====
 
-// --- 대화 (최종 수정: 중복/짤림 제거) ---
+// --- 대화 (최종 수정: 중복/짤림 + 빈 입력 방어) ---
 app.post('/chat', async (req, res) => {
   try {
-    const userMessage = req.body.message;
+    const userMessage = (req.body.message || "").trim();
+
+    // ✅ 빈 입력이면 바로 무시 (응답 없이 종료)
+    if (!userMessage) {
+      return res.json({ response: "" });
+    }
 
     const response = await llm.invoke([
       new SystemMessage(SORAIEL_IDENTITY),
