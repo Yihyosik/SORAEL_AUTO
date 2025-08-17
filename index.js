@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v5.1 (최종 안정화 완성본)
+// index.js — Soraiel v5.3 (최종 안정화 완전판)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -14,6 +14,7 @@ const OPENAI_API_KEY_CONST = (process.env.OPENAI_API_KEY || '').trim();
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
 const RENDER_KEY = process.env.RENDER_KEY || '';
+const MAKE_API_KEY = process.env.MAKE_API_KEY || '';
 
 if (!OPENAI_API_KEY_CONST) {
   console.error('❌ OPENAI_API_KEY 없음');
@@ -63,10 +64,10 @@ const llm = new ChatOpenAI({
 const googleSearchTool = new GoogleCustomSearch();
 const chatPrompt = ChatPromptTemplate.fromMessages([
   new SystemMessage(SORAIEL_IDENTITY),
-  new MessagesPlaceholder("chatHistory"),
+  new MessagesPlaceholder("chat_history"),   // ✅ 수정 완료
   new MessagesPlaceholder("agent_scratchpad")
 ]);
-const memory = new BufferMemory({ returnMessages: true, memoryKey: "chatHistory" });
+const memory = new BufferMemory({ returnMessages: true, memoryKey: "chat_history" }); // ✅ 수정 완료
 
 let agentExecutor;
 async function initializeAgent() {
@@ -81,6 +82,7 @@ async function initializeAgent() {
 // ===== Registry & Vault =====
 let registry = {};
 let vault = {};
+if (MAKE_API_KEY) vault.MAKE_API_KEY = MAKE_API_KEY;
 async function logRun(planId, content) {
   await fs.writeFile(`runs_${planId}.json`, JSON.stringify(content, null, 2));
 }
@@ -114,9 +116,7 @@ app.get('/', (req, res) => {
 app.post('/chat', async (req, res) => {
   const msg = req.body.message;
   try {
-    // LangChain Memory가 관리 → 따로 user push 불필요
     const result = await agentExecutor.invoke({ input: msg });
-
     const aiResponse =
       result?.output ||
       result?.returnValues?.output ||
@@ -135,24 +135,32 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// --- 자가 성장 (/deploy) ---
+// --- Render 배포 ---
 app.post('/deploy', async (req, res) => {
-  const { add_tool, connect_secret, deploy_target, code } = req.body || {};
+  const { deploy_target } = req.body || {};
   const planId = Date.now().toString();
   try {
-    if (connect_secret) vault[connect_secret.name] = connect_secret.value;
-    if (add_tool && code) {
-      return res.status(403).json({ error: "코드 실행은 보안상 위험하여 허용되지 않습니다." });
-    }
     if (deploy_target?.type === 'render') {
       await axios.post('https://api.render.com/deploy', { serviceId: deploy_target.serviceId }, {
         headers: { Authorization: `Bearer ${RENDER_KEY}` }
       }).catch(()=>{});
     }
-    await logRun(planId, { add_tool, connect_secret, deploy_target });
-    res.json({ ok: true, updated: { add_tool, connect_secret, deploy_target } });
+    await logRun(planId, { deploy_target });
+    res.json({ ok: true, updated: { deploy_target } });
   } catch (err) {
     res.status(500).json({ error: "deploy 실패", detail: err.message });
+  }
+});
+
+// --- Make 시나리오 실행 ---
+app.post('/make/run', async (req, res) => {
+  try {
+    const { hookUrl, payload } = req.body; // ✅ Webhook 방식
+    if (!hookUrl) throw new Error("hookUrl 누락");
+    const resp = await axios.post(hookUrl, payload || {});
+    res.json({ ok: true, result: resp.data });
+  } catch (err) {
+    res.status(500).json({ error: "Make 실행 실패", detail: err.message });
   }
 });
 
@@ -290,5 +298,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeAgent();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v5.1 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v5.3 실행 중: 포트 ${PORT}`));
 })();
