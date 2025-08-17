@@ -1,537 +1,539 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Soraiel Chat</title>
-  <style>
-    /* ... (CSS 코드는 이전과 동일) ... */
-    :root {
-      --bg-primary: #F8F9FA;
-      --bg-secondary: #FFFFFF;
-      --bg-user: #F8F9FA;
-      --bg-assistant: #FFFFFF;
-      --text-primary: #1F1F1F;
-      --text-secondary: #656B73;
-      --border-light: #E6E8EB;
-      --accent-orange: #D97706;
-      --accent-blue: #0066CC;
-      --shadow-light: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    * {
-      box-sizing: border-box;
-    }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Soraiel Chat</title>
+  <style>
+    :root {
+      --bg-primary: #F8F9FA;
+      --bg-secondary: #FFFFFF;
+      --bg-user: #F8F9FA;
+      --bg-assistant: #FFFFFF;
+      --text-primary: #1F1F1F;
+      --text-secondary: #656B73;
+      --border-light: #E6E8EB;
+      --accent-orange: #D97706;
+      --accent-blue: #0066CC;
+      --shadow-light: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    * {
+      box-sizing: border-box;
+    }
 
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-      font-size: 15px;
-      line-height: 1.6;
-    }
-    
-    body {
-      display: flex;
-      flex-direction: column;
-    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    
+    body {
+      display: flex;
+      flex-direction: column;
+    }
 
-    /* 상단 헤더 - Claude 스타일 */
-    .header {
-      background-color: var(--bg-secondary);
-      border-bottom: 1px solid var(--border-light);
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      box-shadow: var(--shadow-light);
-    }
-    
-    .header-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .header-icon {
-      width: 20px;
-      height: 20px;
-      background: linear-gradient(135deg, var(--accent-orange), #F59E0B);
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 12px;
-      font-weight: bold;
-    }
-    
-    /* 채팅 영역 */
-    .chat-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0;
-      background-color: var(--bg-primary);
-    }
-    
-    .chat {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 32px;
-    }
-    
-    /* 메시지 스타일 */
-    .message-group {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    
-    .message-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    
-    .avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 600;
-      flex-shrink: 0;
-    }
-    
-    .user-avatar {
-      background: var(--accent-blue);
-      color: white;
-    }
-    
-    .bot-avatar {
-      background: linear-gradient(135deg, var(--accent-orange), #F59E0B);
-      color: white;
-    }
-    
-    .sender-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    
-    .message-content {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border-light);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-left: 36px;
-      box-shadow: var(--shadow-light);
-      position: relative;
-    }
-    
-    .message-content::before {
-      content: '';
-      position: absolute;
-      left: -37px;
-      top: 12px;
-      width: 0;
-      height: 0;
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
-      border-right: 6px solid var(--border-light);
-    }
-    
-    .message-content::after {
-      content: '';
-      position: absolute;
-      left: -36px;
-      top: 12px;
-      width: 0;
-      height: 0;
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
-      border-right: 6px solid var(--bg-secondary);
-    }
-    
-    .message-text {
-      color: var(--text-primary);
-      word-wrap: break-word;
-      white-space: pre-wrap;
-    }
-    
-    /* 입력 영역 */
-    .input-container {
-      background-color: var(--bg-secondary);
-      border-top: 1px solid var(--border-light);
-      padding: 16px 20px;
-      padding-bottom: calc(16px + env(safe-area-inset-bottom));
-      flex-shrink: 0;
-    }
-    
-    .input-wrapper {
-      max-width: 800px;
-      margin: 0 auto;
-      position: relative;
-    }
-    
-    .input-bar {
-      display: flex;
-      align-items: flex-end;
-      gap: 12px;
-      background-color: var(--bg-primary);
-      border: 2px solid var(--border-light);
-      border-radius: 24px;
-      padding: 8px;
-      transition: border-color 0.2s ease;
-    }
-    
-    .input-bar:focus-within {
-      border-color: var(--accent-orange);
-    }
-    
-    .input-bar textarea {
-      flex: 1;
-      border: none;
-      background: transparent;
-      color: var(--text-primary);
-      font-size: 15px;
-      font-family: inherit;
-      line-height: 1.4;
-      resize: none;
-      outline: none;
-      padding: 8px 12px;
-      max-height: 120px;
-      min-height: 24px;
-    }
-    
-    .input-bar textarea::placeholder {
-      color: var(--text-secondary);
-    }
-    
-    .send-button {
-      width: 32px;
-      height: 32px;
-      border: none;
-      border-radius: 50%;
-      background: var(--accent-orange);
-      color: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      transition: all 0.2s ease;
-      flex-shrink: 0;
-    }
-    
-    .send-button:hover {
-      background: #B45309;
-      transform: scale(1.05);
-    }
-    
-    .send-button:disabled {
-      background: var(--text-secondary);
-      cursor: not-allowed;
-      transform: none;
-    }
-    
-    /* 로딩 인디케이터 */
-    .typing-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: 36px;
-      padding: 12px 20px;
-      color: var(--text-secondary);
-      font-size: 14px;
-    }
-    
-    .typing-dots {
-      display: flex;
-      gap: 4px;
-    }
-    
-    .typing-dot {
-      width: 4px;
-      height: 4px;
-      background-color: var(--accent-orange);
-      border-radius: 50%;
-      animation: typing-pulse 1.4s infinite ease-in-out;
-    }
-    
-    .typing-dot:nth-child(2) {
-      animation-delay: 0.2s;
-    }
-    
-    .typing-dot:nth-child(3) {
-      animation-delay: 0.4s;
-    }
-    
-    @keyframes typing-pulse {
-      0%, 80%, 100% {
-        opacity: 0.3;
-        transform: scale(0.8);
-      }
-      40% {
-        opacity: 1;
-        transform: scale(1);
-      }
-    }
-    
-    /* 반응형 대응 */
-    @media (max-width: 768px) {
-      .chat {
-        padding: 16px;
-        gap: 24px;
-      }
-      
-      .header {
-        padding: 12px 16px;
-      }
-      
-      .input-container {
-        padding: 12px 16px;
-        padding-bottom: calc(12px + env(safe-area-inset-bottom));
-      }
-      
-      .message-content {
-        margin-left: 36px;
-        padding: 14px 16px;
-      }
-    }
-    
-    /* 스크롤바 스타일 */
-    .chat-container::-webkit-scrollbar {
-      width: 6px;
-    }
-    
-    .chat-container::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    
-    .chat-container::-webkit-scrollbar-thumb {
-      background: var(--border-light);
-      border-radius: 3px;
-    }
-    
-    .chat-container::-webkit-scrollbar-thumb:hover {
-      background: var(--text-secondary);
-    }
-  </style>
+    /* 상단 헤더 - Claude 스타일 */
+    .header {
+      background-color: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-light);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      box-shadow: var(--shadow-light);
+    }
+    
+    .header-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .header-icon {
+      width: 20px;
+      height: 20px;
+      background: linear-gradient(135deg, var(--accent-orange), #F59E0B);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    /* 채팅 영역 */
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+      background-color: var(--bg-primary);
+    }
+    
+    .chat {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    
+    /* 메시지 스타일 */
+    .message-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    
+    .message-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    
+    .user-avatar {
+      background: var(--accent-blue);
+      color: white;
+    }
+    
+    .bot-avatar {
+      background: linear-gradient(135deg, var(--accent-orange), #F59E0B);
+      color: white;
+    }
+    
+    .sender-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    
+    .message-content {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-light);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-left: 36px;
+      box-shadow: var(--shadow-light);
+      position: relative;
+    }
+    
+    .message-content::before {
+      content: '';
+      position: absolute;
+      left: -37px;
+      top: 12px;
+      width: 0;
+      height: 0;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-right: 6px solid var(--border-light);
+    }
+    
+    .message-content::after {
+      content: '';
+      position: absolute;
+      left: -36px;
+      top: 12px;
+      width: 0;
+      height: 0;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-right: 6px solid var(--bg-secondary);
+    }
+    
+    .message-text {
+      color: var(--text-primary);
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+    
+    /* 입력 영역 */
+    .input-container {
+      background-color: var(--bg-secondary);
+      border-top: 1px solid var(--border-light);
+      padding: 16px 20px;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      flex-shrink: 0;
+    }
+    
+    .input-wrapper {
+      max-width: 800px;
+      margin: 0 auto;
+      position: relative;
+    }
+    
+    .input-bar {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      background-color: var(--bg-primary);
+      border: 2px solid var(--border-light);
+      border-radius: 24px;
+      padding: 8px;
+      transition: border-color 0.2s ease;
+    }
+    
+    .input-bar:focus-within {
+      border-color: var(--accent-orange);
+    }
+    
+    .input-bar textarea {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 15px;
+      font-family: inherit;
+      line-height: 1.4;
+      resize: none;
+      outline: none;
+      padding: 8px 12px;
+      max-height: 120px;
+      min-height: 24px;
+    }
+    
+    .input-bar textarea::placeholder {
+      color: var(--text-secondary);
+    }
+    
+    .send-button {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 50%;
+      background: var(--accent-orange);
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+    
+    .send-button:hover {
+      background: #B45309;
+      transform: scale(1.05);
+    }
+    
+    .send-button:disabled {
+      background: var(--text-secondary);
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    /* 로딩 인디케이터 */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 36px;
+      padding: 12px 20px;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    
+    .typing-dots {
+      display: flex;
+      gap: 4px;
+    }
+    
+    .typing-dot {
+      width: 4px;
+      height: 4px;
+      background-color: var(--accent-orange);
+      border-radius: 50%;
+      animation: typing-pulse 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    
+    .typing-dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    
+    @keyframes typing-pulse {
+      0%, 80%, 100% {
+        opacity: 0.3;
+        transform: scale(0.8);
+      }
+      40% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+    
+    /* 반응형 대응 */
+    @media (max-width: 768px) {
+      .chat {
+        padding: 16px;
+        gap: 24px;
+      }
+      
+      .header {
+        padding: 12px 16px;
+      }
+      
+      .input-container {
+        padding: 12px 16px;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom));
+      }
+      
+      .message-content {
+        margin-left: 36px;
+        padding: 14px 16px;
+      }
+    }
+    
+    /* 스크롤바 스타일 */
+    .chat-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .chat-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    
+    .chat-container::-webkit-scrollbar-thumb {
+      background: var(--border-light);
+      border-radius: 3px;
+    }
+    
+    .chat-container::-webkit-scrollbar-thumb:hover {
+      background: var(--text-secondary);
+    }
+  </style>
 </head>
 <body>
-  <div class="header">
-    <div class="header-title">
-      <div class="header-icon">S</div>
-      Soraiel
-    </div>
-  </div>
+  <div class="header">
+    <div class="header-title">
+      <div class="header-icon">S</div>
+      Soraiel
+    </div>
+  </div>
 
-  <div class="chat-container" id="chatContainer">
-    <div class="chat" id="chat">
-      <div class="message-group">
-        <div class="message-header">
-          <div class="avatar bot-avatar">S</div>
-          <span class="sender-name">Soraiel</span>
-        </div>
-        <div class="message-content">
-          <div class="message-text">안녕하세요, 저는 Soraiel입니다. 무엇을 도와드릴까요?</div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <div class="chat-container" id="chatContainer">
+    <div class="chat" id="chat">
+      <div class="message-group">
+        <div class="message-header">
+          <div class="avatar bot-avatar">S</div>
+          <span class="sender-name">Soraiel</span>
+        </div>
+        <div class="message-content">
+          <div class="message-text">안녕하세요, 저는 Soraiel입니다. 무엇을 도와드릴까요?</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <div class="input-container">
-    <div class="input-wrapper">
-      <div class="input-bar">
-        <textarea 
-          id="messageInput" 
-          placeholder="메시지를 입력하세요..."
-          rows="1"
-        ></textarea>
-        <button class="send-button" id="sendButton">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M15.854 7.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708-.708L14.293 8.5H.5a.5.5 0 0 1 0-1h13.793L8.146 1.354a.5.5 0 0 1 .708-.708l7 7z"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  </div>
+  <div class="input-container">
+    <div class="input-wrapper">
+      <div class="input-bar">
+        <textarea 
+          id="messageInput" 
+          placeholder="메시지를 입력하세요..."
+          rows="1"
+        ></textarea>
+        <button class="send-button" id="sendButton">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M15.854 7.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708-.708L14.293 8.5H.5a.5.5 0 0 1 0-1h13.793L8.146 1.354a.5.5 0 0 1 .708-.708l7 7z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
 
-  <script>
-    const chat = document.getElementById('chat');
-    const chatContainer = document.getElementById('chatContainer');
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.getElementById('sendButton');
+  <script>
+    const chat = document.getElementById('chat');
+    const chatContainer = document.getElementById('chatContainer');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
 
-    function adjustTextareaHeight() {
-      messageInput.style.height = 'auto';
-      messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
-      sendButton.disabled = !messageInput.value.trim();
-    }
-    
-    function addMessage(text, isUser = false) {
-      const messageGroup = document.createElement('div');
-      messageGroup.className = 'message-group';
-      
-      const messageHeader = document.createElement('div');
-      messageHeader.className = 'message-header';
-      
-      const avatar = document.createElement('div');
-      avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`;
-      avatar.textContent = isUser ? 'U' : 'S';
-      
-      const senderName = document.createElement('span');
-      senderName.className = 'sender-name';
-      senderName.textContent = isUser ? 'You' : 'Soraiel';
-      
-      messageHeader.appendChild(avatar);
-      messageHeader.appendChild(senderName);
-      
-      const messageContent = document.createElement('div');
-      messageContent.className = 'message-content';
-      
-      const messageText = document.createElement('div');
-      messageText.className = 'message-text';
-      messageText.textContent = text;
-      
-      messageContent.appendChild(messageText);
-      messageGroup.appendChild(messageHeader);
-      messageGroup.appendChild(messageContent);
-      
-      chat.appendChild(messageGroup);
-      scrollToBottom();
-    }
-    
-    function showTypingIndicator() {
-      const typingDiv = document.createElement('div');
-      typingDiv.className = 'typing-indicator';
-      typingDiv.id = 'typing';
-      
-      const botAvatar = document.createElement('div');
-      botAvatar.className = 'avatar bot-avatar';
-      botAvatar.textContent = 'S';
-      
-      const textSpan = document.createElement('span');
-      textSpan.textContent = 'Soraiel이 입력 중';
-      
-      const typingDots = document.createElement('div');
-      typingDots.className = 'typing-dots';
-      for (let i = 0; i < 3; i++) {
-        const dot = document.createElement('div');
-        dot.className = 'typing-dot';
-        typingDots.appendChild(dot);
-      }
-      
-      typingDiv.appendChild(botAvatar);
-      typingDiv.appendChild(textSpan);
-      typingDiv.appendChild(typingDots);
-      
-      chat.appendChild(typingDiv);
-      scrollToBottom();
-    }
-    
-    function hideTypingIndicator() {
-      const typing = document.getElementById('typing');
-      if (typing) {
-        typing.remove();
-      }
-    }
-    
-    function scrollToBottom() {
-      chatContainer.scrollTo({
-        top: chatContainer.scrollHeight,
-        behavior: 'smooth'
-      });
-    }
+    // 대화 기록을 저장할 배열
+    let chatHistory = [];
 
-    // 🔧 새로운 함수: 봇 응답을 동적으로 생성
-    function generateBotResponse(userText) {
-      const lowerCaseText = userText.toLowerCase();
+    function adjustTextareaHeight() {
+      messageInput.style.height = 'auto';
+      messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+      sendButton.disabled = !messageInput.value.trim();
+    }
+    
+    function addMessage(text, isUser = false) {
+      const messageGroup = document.createElement('div');
+      messageGroup.className = 'message-group';
+      
+      const messageHeader = document.createElement('div');
+      messageHeader.className = 'message-header';
+      
+      const avatar = document.createElement('div');
+      avatar.className = `avatar ${isUser ? 'user-avatar' : 'bot-avatar'}`;
+      avatar.textContent = isUser ? 'U' : 'S';
+      
+      const senderName = document.createElement('span');
+      senderName.className = 'sender-name';
+      senderName.textContent = isUser ? 'You' : 'Soraiel';
+      
+      messageHeader.appendChild(avatar);
+      messageHeader.appendChild(senderName);
+      
+      const messageContent = document.createElement('div');
+      messageContent.className = 'message-content';
+      
+      const messageText = document.createElement('div');
+      messageText.className = 'message-text';
+      messageText.textContent = text;
+      
+      messageContent.appendChild(messageText);
+      messageGroup.appendChild(messageHeader);
+      messageGroup.appendChild(messageContent);
+      
+      chat.appendChild(messageGroup);
+      scrollToBottom();
+    }
+    
+    function showTypingIndicator() {
+      const typingDiv = document.createElement('div');
+      typingDiv.className = 'typing-indicator';
+      typingDiv.id = 'typing';
+      
+      const botAvatar = document.createElement('div');
+      botAvatar.className = 'avatar bot-avatar';
+      botAvatar.textContent = 'S';
+      
+      const textSpan = document.createElement('span');
+      textSpan.textContent = 'Soraiel이 입력 중';
+      
+      const typingDots = document.createElement('div');
+      typingDots.className = 'typing-dots';
+      for (let i = 0; i < 3; i++) {
+        const dot = document.createElement('div');
+        dot.className = 'typing-dot';
+        typingDots.appendChild(dot);
+      }
+      
+      typingDiv.appendChild(botAvatar);
+      typingDiv.appendChild(textSpan);
+      typingDiv.appendChild(typingDots);
+      
+      chat.appendChild(typingDiv);
+      scrollToBottom();
+    }
+    
+    function hideTypingIndicator() {
+      const typing = document.getElementById('typing');
+      if (typing) {
+        typing.remove();
+      }
+    }
+    
+    function scrollToBottom() {
+      chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
 
-      if (lowerCaseText.includes('안녕') || lowerCaseText.includes('안녕하세요')) {
-        return '안녕하세요! 무엇을 도와드릴까요?';
-      }
-      if (lowerCaseText.includes('녕') || lowerCaseText.includes('안녕')) {
-        return '안녕하세요! 무엇을 도와드릴까요?';
-      }
-      if (lowerCaseText.includes('이름')) {
-        return '제 이름은 소라엘입니다. 당신의 훌륭한 조수가 되어 드릴게요.';
-      }
-      if (lowerCaseText.includes('넌 누구')) {
-        return '저는 당신의 요청을 처리하는 똑똑한 AI 조수입니다.';
-      }
-      if (lowerCaseText.includes('고마워') || lowerCaseText.includes('감사')) {
-        return '천만에요. 더 필요한 것이 있으면 언제든지 말씀해주세요!';
-      }
-      if (lowerCaseText.includes('어때')) {
-        return '저는 언제나 완벽하게 작동합니다. 당신의 질문을 기다리고 있었어요.';
-      }
-      // 아무것도 해당되지 않을 때의 기본 응답
-      return `죄송합니다. 아직 당신의 말씀을 완전히 이해하지 못했습니다. 더 자세히 말씀해주시면 감사하겠습니다.`;
-    }
+    async function sendMessage() {
+      const userMessage = messageInput.value.trim();
+      if (!userMessage) return;
 
-    function sendMessage() {
-      const text = messageInput.value.trim();
-      if (!text) return;
+      // 1. 사용자 메시지 화면에 추가 및 기록
+      addMessage(userMessage, true);
+      chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
+      
+      messageInput.value = '';
+      adjustTextareaHeight();
+      
+      // 2. 로딩 인디케이터 표시
+      showTypingIndicator();
+      
+      // 3. AI 응답 생성 (API 호출)
+      try {
+        const payload = { contents: chatHistory };
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+        
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        
+        const result = await response.json();
+        
+        // 4. 로딩 인디케이터 숨기기
+        hideTypingIndicator();
+        
+        if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
+          const botResponse = result.candidates[0].content.parts[0].text;
+          addMessage(botResponse, false);
+          chatHistory.push({ role: "model", parts: [{ text: botResponse }] });
+        } else {
+          throw new Error('AI 응답이 올바르지 않습니다.');
+        }
+      } catch (error) {
+        console.error('Error during chat:', error);
+        hideTypingIndicator();
+        addMessage('오류가 발생했습니다. AI 응답을 가져올 수 없습니다.', false);
+      }
+    }
 
-      addMessage(text, true);
-      
-      messageInput.value = '';
-      adjustTextareaHeight();
-      
-      showTypingIndicator();
-      
-      // 봇 응답을 생성하고 추가
-      setTimeout(() => {
-        hideTypingIndicator();
-        const botResponse = generateBotResponse(text);
-        addMessage(botResponse, false);
-      }, 1500);
-    }
+    sendButton.addEventListener('click', sendMessage);
 
-    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    
+    messageInput.addEventListener('input', adjustTextareaHeight);
 
-    messageInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    });
-    
-    messageInput.addEventListener('input', adjustTextareaHeight);
+    if (window.visualViewport) {
+      const initialHeight = window.visualViewport.height;
+      window.visualViewport.addEventListener('resize', () => {
+        const viewportHeight = window.visualViewport.height;
+        if (viewportHeight < initialHeight) {
+          chatContainer.style.height = `${viewportHeight - (document.body.clientHeight - chatContainer.offsetHeight)}px`;
+        } else {
+          chatContainer.style.height = '100%'; 
+        }
+        scrollToBottom();
+      });
+    }
 
-    if (window.visualViewport) {
-      const initialHeight = window.visualViewport.height;
-      window.visualViewport.addEventListener('resize', () => {
-        const viewportHeight = window.visualViewport.height;
-        if (viewportHeight < initialHeight) {
-          chatContainer.style.height = `${viewportHeight - (document.body.clientHeight - chatContainer.offsetHeight)}px`;
-        } else {
-          chatContainer.style.height = '100%'; 
-        }
-        scrollToBottom();
-      });
-    }
+    adjustTextareaHeight();
+    window.addEventListener('load', scrollToBottom);
 
-    adjustTextareaHeight();
-    window.addEventListener('load', scrollToBottom);
-
-  </script>
+  </script>
 
 </body>
 </html>
