@@ -1,5 +1,5 @@
 // =======================
-// index.js — Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy 개선)
+// index.js — Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy FIX)
 // =======================
 require('dotenv').config();
 const fs = require('fs/promises');
@@ -307,27 +307,41 @@ app.post('/execute', async (req, res) => {
   }
 });
 
-// ===== /deploy =====
+// ===== /deploy (FIX) =====
 app.post('/deploy', async (req, res) => {
   try {
     const { add_tool } = req.body;
     if (add_tool) {
+      // 문법 검사
       esprima.parseScript(add_tool.code);
+
+      // 샌드박스 실행
       const context = { console, axios, module: {} };
       vm.createContext(context);
       const fn = vm.runInContext(add_tool.code, context);
+
+      // module.exports 방식 또는 함수 직접 반환
       const toolFn = context.module.exports || fn;
 
+      if (typeof toolFn !== "function") {
+        throw new Error("등록된 코드가 함수가 아닙니다.");
+      }
+
+      // Dry-run
       let testResult;
       try { testResult = await toolFn({ test: true }); }
       catch (e) { throw new Error("Dry-run 실패: " + e.message); }
 
+      // Registry에 등록
       const backup = { ...registry };
       try { registry[add_tool.name] = toolFn; }
       catch (err) { registry = backup; throw err; }
     }
     res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: "deploy 실패", detail: err.message }); }
+  } catch (err) {
+    console.error("❌ Deploy 오류:", err);
+    res.status(500).json({ error: "deploy 실패", detail: err.message });
+  }
 });
 
 // ===== /rta/webhook =====
@@ -351,5 +365,5 @@ const PORT = process.env.PORT || 3000;
 (async () => {
   await initializeChatChain();
   await loadHistory();
-  app.listen(PORT, () => console.log(`🚀 Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy 개선) 실행 중: 포트 ${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Soraiel v8 FULL (GOOGLE_CSE_ID + Deploy FIX) 실행 중: 포트 ${PORT}`));
 })();
