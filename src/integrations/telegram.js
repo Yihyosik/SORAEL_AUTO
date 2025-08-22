@@ -1,8 +1,10 @@
+// src/integrations/telegram.js
 const fetch = require('node-fetch');
 
 async function sendTelegramMessage(chatId, text, opts = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN not set');
+  if (!chatId) throw new Error('telegram: chatId required');
 
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   const body = {
@@ -14,13 +16,11 @@ async function sendTelegramMessage(chatId, text, opts = {}) {
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type':'application/json' },
     body: JSON.stringify(body)
   });
   const data = await res.json();
-  if (!res.ok || !data.ok) {
-    throw new Error(`telegram send failed: ${res.status} ${JSON.stringify(data)}`);
-  }
+  if (!res.ok || !data.ok) throw new Error(`telegram send failed: ${res.status} ${JSON.stringify(data)}`);
   return data;
 }
 
