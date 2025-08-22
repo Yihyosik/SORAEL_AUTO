@@ -1,0 +1,37 @@
+{
+  "name": "soraiel-v1.1.1",
+  "version": "1.1.1",
+  "description": "AI 메타 자동화 시스템 - 프로덕션 레디",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test:smoke": "node scripts/smoke-test.js",
+    "migrate": "node scripts/migrate.js",
+    "loadtest": "node scripts/load-test.js 20 60000 5000",
+    "setup": "bash scripts/setup.sh"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.0",
+    "axios": "^1.8.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.0.1",
+    "helmet": "^8.1.0",
+    "node-cron": "^3.0.3",
+    "openai": "^4.60.0",
+    "pino": "^9.5.1",
+    "pino-pretty": "^11.3.1",
+    "rate-limit-redis": "^4.2.0",
+    "redis": "^4.7.1",
+    "uuid": "^11.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "eslint": "^9.17.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.9"
+  },
+  "engines": { "node": ">=20.19.2", "npm": ">=10.0.0" }
+}
