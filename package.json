@@ -1,6 +1,8 @@
 {
   "name": "soraiel-v1.1.1",
   "version": "1.1.1",
+  "private": true,
+  "license": "MIT",
   "description": "AI 메타 자동화 시스템 - 프로덕션 레디",
   "main": "src/index.js",
   "scripts": {
@@ -36,5 +38,9 @@
   "engines": {
     "node": ">=20.19.2",
     "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10",
+  "resolutions": {
+    "pino-pretty": "11.2.2"
   }
 }
