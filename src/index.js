@@ -1,7 +1,3 @@
----
-
-## 1-5) `src/index.js`  *(핫픽스 반영 — bodyParser verify로 raw body 캡처)*
-```js
 const express = require('express');
 const bodyParser = require('body-parser');
 const cfg = require('./config');
@@ -48,5 +44,3 @@ app.post('/rta/webhook', handleWebhook);
 registerCron(app);
 
 app.listen(cfg.PORT, ()=> console.log(`soraiel v1.1.1 on :${cfg.PORT}`));
-
-얘는 파일 이름이 뭐야?
