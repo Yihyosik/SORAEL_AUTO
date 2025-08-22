@@ -8,11 +8,18 @@ const { registerCron, handleWebhook } = require('./rta');
 
 const app = express();
 
+/**
+ * Render/Cloudflare 등 Reverse Proxy 뒤에서 실제 클라이언트 IP를 신뢰하도록 설정
+ * - rate-limit, 로깅, 보안 정책이 올바른 IP를 인식하게 됨
+ */
+app.set('trust proxy', 1);
+
 // raw body 캡처를 body-parser의 verify 훅에서 처리 (스트림 중복 소비 방지)
 app.use(bodyParser.json({
   limit: '2mb',
   verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); }
 }));
+
 app.use(requestId);
 applySecurity(app);
 
@@ -41,6 +48,7 @@ app.post('/execute', requireAdmin, async (req, res) => {
 });
 
 app.post('/deploy', requireAdmin, async (_req, res) => {
+  // v1.1: 도구 핫리로드는 깃/배포로 관리. (/deploy 계약은 후속 버전에서 확장)
   res.json({
     ok: true,
     msg: 'Hot-reload tools by updating src/registry/tools and re-deploying'
@@ -51,5 +59,5 @@ app.post('/rta/webhook', handleWebhook);
 
 registerCron(app);
 
-// ✅ Render 포트 ($PORT) 우선 사용
+// Render가 내려주는 $PORT(예: 10000) 우선 사용
 app.listen(cfg.PORT, () => console.log(`soraiel v1.1.1 on :${cfg.PORT}`));
