@@ -8,7 +8,7 @@ async function sendTelegramMessage(chatId, text, opts = {}) {
   const body = {
     chat_id: chatId,
     text,
-    parse_mode: opts.parse_mode || 'HTML',
+    parse_mode: opts.parse_mode || 'Markdown',
     disable_web_page_preview: true
   };
 
